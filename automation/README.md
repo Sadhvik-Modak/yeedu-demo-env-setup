@@ -65,6 +65,44 @@ injection — use this if you don't have a fresh token handy).
   it against a known dev/QA sandbox.
 - Run `--dry-run` at least once before a real run.
 
+## Registering hive_metastore/ as a Yeedu Hive metastore-catalog
+
+`create_metastore.py` registers the `hive_metastore/` Docker stack (see its
+own README) as a Hive metastore-catalog, via `yeedu metastore-catalog hive
+create`/`edit`. Idempotent — re-running with the same `--name` updates the
+existing catalog instead of duplicating it.
+
+```bash
+cd hive_metastore && docker compose up -d --build   # bring the stack up first
+cd ../automation
+python3 create_metastore.py \
+  --api-url https://<host>:8080 \
+  --username <user> --password <pass> \
+  --tenant-id <tenant_id> \
+  --host <LAN/VPN-reachable address of the machine running hive_metastore/> \
+  --insecure
+```
+
+- `--host` is the address *Yeedu* uses to reach this machine — not
+  `localhost`, unless Yeedu itself runs here. Pick whatever address your
+  Yeedu platform/clusters can actually route to (LAN IP, VPN IP, etc.);
+  `hive_metastore`'s ports (9083 metastore, 9000 MinIO) publish on
+  `0.0.0.0`, so reachability is a network/firewall question, not a Docker
+  one.
+- Reads `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` from `hive_metastore/.env`
+  (override the path with `--env-file`) and bakes them as literal values
+  into a generated `core-site.xml` — the committed
+  `hive_metastore/conf/*.xml` files use `${env.VAR}`/docker-service-name
+  values that only resolve inside the compose network, so they can't be
+  uploaded to Yeedu as-is.
+- Confirmed live (2026-08-07, dev-onprem-008): `--api-url` must **not**
+  include a path suffix like `/api/v1` — the CLI appends its own path, and
+  the doubled-up path fails login with a misleading `"Auth Token not
+  found"` error instead of a clear one. Also, Yeedu rejects hyphens in
+  `--name` (letters/digits/underscore only, must start with a letter or
+  underscore) — `docker-hive-metastore` fails, `docker_hive_metastore`
+  works.
+
 ## Confirmed live (2026-08-07, dev-onprem-008, tenant 3337654a-ec94-4f4f-9eac-5907d8dae9ed)
 
 A full real run succeeded end to end and was fully repaired after two
