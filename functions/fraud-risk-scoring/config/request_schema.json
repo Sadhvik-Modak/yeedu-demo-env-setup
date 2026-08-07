@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "claim_amount",
+    "policy_tenure_months",
+    "num_prior_claims",
+    "premium_amount",
+    "claim_to_premium_ratio",
+    "days_to_report"
+  ],
+  "properties": {
+    "claim_amount": { "type": "number", "minimum": 0 },
+    "policy_tenure_months": { "type": "number", "minimum": 0 },
+    "num_prior_claims": { "type": "number", "minimum": 0 },
+    "premium_amount": { "type": "number", "minimum": 0 },
+    "claim_to_premium_ratio": { "type": "number", "minimum": 0 },
+    "days_to_report": { "type": "number", "minimum": 0 }
+  },
+  "additionalProperties": true
+}
