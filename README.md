@@ -9,18 +9,20 @@ ready whenever needed, without hand-clicking through setup each time.
 - **[`functions/`](functions/README.md)** — 3 Yeedu Functions demos (ML
   inference as a REST endpoint): iris classification, insurance fraud
   scoring, sentiment analysis. Covers `job_type: Functions`.
-- **[`jobs/`](jobs/README.md)** — the other 3 Spark job types: `jar/`
-  (SparkPi, via Yeedu's own vendored `spark-examples` jar), `python/` and
-  `sql/` (both query the NYC Taxi gold table). Covers `job_type:
-  JAR/Python/Spark SQL`.
+- **[`jobs/`](jobs/README.md)** — the other 3 Spark job types: `jar/` (a
+  thin, repo-committed jar), `python/` and `sql/` (all three query the NYC
+  Taxi gold table). Covers `job_type: JAR/Python/Spark SQL`.
 - **[`notebooks/`](notebooks/README.md)** — 5 datasets (NYC Taxi, Citi
   Bike, Wikipedia Clickstream, USGS Earthquakes, NOAA Weather), each with
   a bronze-ingest generator notebook and a gold-transform notebook
   (DataFrame API + `%%sql` variant), plus `visualization/` (Plotly charts,
   including a genuinely live-polling earthquake map).
+- **[`clusters/`](clusters/README.md)** — S/M/L/XL Yeedu cluster tiers on
+  an OnPrem environment (config only, never started).
 - **[`automation/`](automation/README.md)** — `provision.py`: clones this
   repo into a Yeedu workspace and registers everything above as real Yeedu
   resources (jobs + notebooks), idempotently, driven by the `yeedu` CLI.
+  `create_clusters.py`: separately provisions the `clusters/` tiers.
 
 ## Quickest path to a working demo
 

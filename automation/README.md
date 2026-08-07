@@ -197,6 +197,48 @@ at exactly 3273 bytes), all 6 jobs (`job_id` 4263–4268), all 17 notebooks
 (`notebook_id` 4269–4285). This is the first workspace that's actually
 fully correct.
 
+**Fourth session, same day — different environment (`dev-onprem-005`,
+tenant `7e27253a-1ab8-4623-a789-56ae7e8939e9`) — cluster automation
+(`automation/create_clusters.py` / `deploy_clusters.py`, see
+`clusters/README.md`):**
+
+- **Resolved the yeedu.yml token-injection ambiguity for good.** Auth
+  against this new host kept failing with a misleading "session has
+  expired" even with a genuinely fresh token. Root cause:
+  `~/.yeedu/yeedu_cli.config` (a separate, single-token, host-unscoped
+  cache written by any `yeedu configure` login) takes priority over
+  `yeedu.yml` regardless of `YEEDU_RESTAPI_URL` — an earlier
+  username/password login against `dev-onprem-008` in the same session
+  had left its token cached there, and it was being silently sent to
+  `dev-onprem-005` instead. Fixed: `configure_auth.inject_token()` now
+  writes `yeedu_cli.config` directly (the file actually read), still
+  mirrors into `yeedu.yml` for whatever secondary purpose it may serve.
+  Added as skill gotcha #15.
+- **`cluster create --cluster_type YEEDU` requires `--min_instances`/
+  `--max_instances`** despite both being optional in `--help`:
+  `{'error_code': 'RFA-000044', 'error_message': "The parameters
+  'min_instances' and 'max_instances' are required for the 'YEEDU' and
+  'STANDALONE' cluster types."}`. Added as skill gotcha #16.
+- **`cluster create-conf` takes raw disk params** (`--disk_type_id --size
+  --number_of_disks`), not a `volume_conf_id`, even though `cluster get`
+  displays the result as a nested `machine_volume_conf` object — the
+  platform creates/matches one internally.
+- **Credential JSON shape for `Proxmox Basic Auth`** confirmed via
+  round-trip: `base64(json.dumps({"USERNAME": ..., "PASSWORD": ...}))`.
+  Password is write-only — `get-credential-conf` only ever echoes back
+  `USERNAME`, confirming it can't be extracted from an existing
+  credential to reuse; a caller-supplied dummy is used instead (see
+  `clusters/README.md`).
+- A freshly created, never-started cluster's `cluster_status` (and its
+  node's `node_status`) reads `DESTROYED` — confirmed this is the normal
+  "no compute provisioned" rest state, not a failure.
+- Built and validated both create and idempotent-reuse paths live: created
+  network-conf (id 69), boot-disk-image-conf (30), credential-conf (51),
+  cloud-env (64), 4 cluster-confs (650–653), 4 clusters S/M/L/XL
+  (359–362, all `DESTROYED`/not started as intended) — then re-ran the
+  same script and confirmed every resource was found and reused, zero
+  duplicates, zero errors.
+
 ## Known gaps — read before a real run
 
 1. **Git-clone and tenant-associate REST shapes** are sourced only from the
@@ -245,7 +287,8 @@ fully correct.
 |---|---|
 | `provision.py` | Entrypoint — argparse, runs steps 1-6 in order, prints a summary. |
 | `yeedu_client.py` | Subprocess wrapper: `YeeduClient.run(*args)` → parsed JSON, appends `--json-output default`, handles the exit-0-with-error-body and Python-repr quirks. `run_allow_not_found()` wraps idempotency-check calls, tolerating "not found" via a regex (`_NOT_FOUND_RE` — 4 distinct wordings seen live). `find_exact_match()` filters `search` results for an exact name match (search returns prefix matches too). |
-| `configure_auth.py` | `inject_token()` (writes `~/.yeedu/yeedu.yml`) or `login_with_credentials()` (`yeedu configure` with username/password) — either path, then an auth smoke test. |
+| `configure_auth.py` | `inject_token()` (writes `~/.yeedu/yeedu_cli.config` — the file actually read, see "Confirmed live" gotcha #15 — and mirrors into `yeedu.yml`) or `login_with_credentials()` (`yeedu configure` with username/password) — either path, then an auth smoke test. |
+| `deploy_clusters.py` / `create_clusters.py` | Separate from `provision.py` (different scope: cluster/cloud-env infra, no workspace or repo clone). Creates S/M/L/XL clusters on an OnPrem environment — see `clusters/README.md`. |
 | `resolve_tenant_workspace.py` | `iam associate-tenant`, `workspace get`, and `create_workspace()` (auto-creates a new workspace per run when `--workspace-id` is omitted). |
 | `clone_repo.py` | Async git clone with `clone-status` polling to actual completion (see "Confirmed live" — this used to silently no-op); idempotency requires `is_git: true` on the matched folder; also defines `REPO_WORKSPACE_PATH`, the in-workspace root (`/files/yeedu-demo-env-setup`) that `deploy_functions.py`/`create_notebooks.py` build paths from. |
 | `deploy_functions.py` | Creates the 3 Functions jobs; strips version pins from `requirements.txt` per gotcha #4 (`--yeedu-functions-requirements` does a raw space-split, not JSON/comma parsing). |

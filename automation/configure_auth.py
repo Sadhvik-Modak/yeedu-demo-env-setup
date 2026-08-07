@@ -1,15 +1,22 @@
 """Injects a pre-obtained Yeedu API token so `yeedu` CLI calls authenticate,
 without going through `yeedu configure`'s username/password login flow.
 
-UNVERIFIED for platform 2.10.1 — see automation/README.md "Known gaps" #1.
-The `yeedu-cli` skill's auth-and-identity.md documents that
-`~/.yeedu/yeedu.yml` holds a `yeedu_env` list of `{name, restapi_url,
-token}` entries the CLI reads as pre-configured environments, but not the
-exact selection mechanism (auto-match by restapi_url? most-recent-wins? an
-explicit --env flag?). This module writes the entry and then smoke-tests it
-with a real authenticated call (`iam get-user-info`) before the rest of the
-pipeline proceeds.
+CONFIRMED LIVE (2026-08-07) — resolves what was previously Known Gap #1:
+the file that actually matters is `~/.yeedu/yeedu_cli.config`
+(`{"token": "<jwt>"}`, no host scoping at all), NOT `~/.yeedu/yeedu.yml`.
+A prior `yeedu configure` login (even hours earlier, against a completely
+different host) leaves a cached session in `yeedu_cli.config` that
+silently overrides anything written to `yeedu.yml` and gets sent
+regardless of `YEEDU_RESTAPI_URL` — surfacing as a misleading "session has
+expired" error even for a genuinely fresh token for the *intended* host.
+See `~/.claude/skills/yeedu-cli/reference/known-issues-and-gotchas.md`
+gotcha #15 for the full incident writeup. This module now writes the
+token to `yeedu_cli.config` (the file actually read) and also mirrors it
+into `yeedu.yml` as a `yeedu_env` entry (harmless, kept for whatever
+multi-environment selection mechanism that file may still serve — still
+otherwise unconfirmed).
 """
+import json
 import os
 import subprocess
 
@@ -19,12 +26,19 @@ from yeedu_client import YeeduCommandError
 
 YEEDU_DIR = os.path.expanduser("~/.yeedu")
 YEEDU_YML_PATH = os.path.join(YEEDU_DIR, "yeedu.yml")
-ENV_NAME = "yeedu-demo-env-setup-automation"
+YEEDU_CLI_CONFIG_PATH = os.path.join(YEEDU_DIR, "yeedu_cli.config")
+ENV_NAME = "yeedu-onprem"
 
 
 def inject_token(api_url, token):
-    """Write api_url/token into ~/.yeedu/yeedu.yml and point YEEDU_RESTAPI_URL at it."""
+    """Write api_url/token to ~/.yeedu/yeedu_cli.config (the file the CLI
+    actually reads — see module docstring), mirror into yeedu.yml, and
+    point YEEDU_RESTAPI_URL at it."""
     os.makedirs(YEEDU_DIR, exist_ok=True)
+
+    with open(YEEDU_CLI_CONFIG_PATH, "w") as f:
+        json.dump({"token": token}, f)
+    print(f"Wrote token to {YEEDU_CLI_CONFIG_PATH} (overwrites any previously cached session for a different host).")
 
     config = {"yeedu_env": []}
     if os.path.exists(YEEDU_YML_PATH):
@@ -33,20 +47,20 @@ def inject_token(api_url, token):
         config["yeedu_env"] = [
             e for e in existing.get("yeedu_env", []) if e.get("name") != ENV_NAME
         ]
-
     config["yeedu_env"].append({"name": ENV_NAME, "restapi_url": api_url, "token": token})
-
     with open(YEEDU_YML_PATH, "w") as f:
         yaml.safe_dump(config, f, default_flow_style=False)
 
     os.environ["YEEDU_RESTAPI_URL"] = api_url
-    print(f"Wrote token to {YEEDU_YML_PATH} under env name '{ENV_NAME}'.")
 
 
 def login_with_credentials(api_url, username, password, dry_run=False):
     """Log in via `yeedu configure` (username/password), instead of token
     injection. Confirmed live (2026-08-07) as the reliable path when a
-    fresh token isn't in hand — see README "Confirmed live"."""
+    fresh token isn't in hand — see README "Confirmed live". Note this
+    also writes ~/.yeedu/yeedu_cli.config, so a subsequent inject_token()
+    call for a *different* host in the same session correctly overwrites
+    it (see module docstring)."""
     if dry_run:
         print(f"[dry-run] would `yeedu configure --no-browser=true` as {username} against {api_url}")
         os.environ["YEEDU_RESTAPI_URL"] = api_url
@@ -81,12 +95,13 @@ def smoke_test(client):
         info = client.run("iam", "get-user-info")
     except YeeduCommandError as exc:
         raise RuntimeError(
-            "Token injection via ~/.yeedu/yeedu.yml did not authenticate "
-            "(see automation/README.md 'Known gaps' #1). Fall back to "
-            "username/password: export YEEDU_USERNAME/YEEDU_PASSWORD and "
-            "run `yeedu configure --no-browser=true` yourself, then re-run "
-            "this script — it will reuse whatever session `yeedu configure` "
-            "already established instead of re-injecting a token."
+            "Auth did not succeed (see automation/README.md 'Confirmed "
+            "live' and the yeedu-cli skill's gotcha #15 — check whether "
+            "~/.yeedu/yeedu_cli.config holds a stale session for a "
+            "*different* host from an earlier login in this session). "
+            "Fall back to username/password: export "
+            "YEEDU_USERNAME/YEEDU_PASSWORD and run `yeedu configure "
+            "--no-browser=true` yourself, then re-run this script."
         ) from exc
 
     print(f"Auth OK — authenticated as: {info}")
