@@ -5,24 +5,24 @@ import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 
 /**
- * Standalone Spark job (Yeedu job_type: JAR): prints a gold table's row
- * count and top rows. Java/JAR equivalent of ../../python/gold_table_summary_job.py
- * and ../../sql/gold_table_summary.sql -- same "query a gold table" idea,
- * different Yeedu job type.
+ * Standalone Spark job (Yeedu job_type: JAR): prints a table's row count
+ * and top rows. Java/JAR equivalent of ../../python/table_summary_job.py
+ * and ../../sql/table_summary.sql -- same "query a business-metric table"
+ * idea, different Yeedu job type.
  *
- * Usage: GoldTableSummaryJob &lt;database.table&gt;
+ * Usage: TableSummaryJob &lt;database.table&gt;
  */
-public class GoldTableSummaryJob {
+public class TableSummaryJob {
 
     public static void main(String[] args) {
         if (args.length < 1) {
-            System.err.println("Usage: GoldTableSummaryJob <database.table>");
+            System.err.println("Usage: TableSummaryJob <database.table>");
             System.exit(1);
         }
         String tableName = args[0];
 
         SparkSession spark = SparkSession.builder()
-                .appName("GoldTableSummaryJob")
+                .appName("TableSummaryJob")
                 .getOrCreate();
 
         Dataset<Row> df = spark.table(tableName);

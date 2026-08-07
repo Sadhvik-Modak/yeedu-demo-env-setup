@@ -23,26 +23,26 @@ import os
 from clone_repo import REPO_WORKSPACE_PATH
 from yeedu_client import find_exact_match, get_field, run_allow_not_found
 
-DEFAULT_TABLE = "nyc_taxi.gold_taxi_trip_summary_v1"
+DEFAULT_TABLE = "retail.customer_rfm_segments_v1"
 
 JOB_DEMOS = [
     {
-        "job_name": "jar_gold_table_summary",
+        "job_name": "jar_table_summary",
         "job_type": "JAR",
-        "job_command_rel_path": "jobs/jar/gold-table-summary-job-1.0.jar",
-        "job_class_name": "io.yeedu.demo.GoldTableSummaryJob",
+        "job_command_rel_path": "jobs/jar/table-summary-job-1.0.jar",
+        "job_class_name": "io.yeedu.demo.TableSummaryJob",
         "job_arguments": DEFAULT_TABLE,
     },
     {
-        "job_name": "python_gold_table_summary",
+        "job_name": "python_table_summary",
         "job_type": "Python",
-        "job_command_rel_path": "jobs/python/gold_table_summary_job.py",
+        "job_command_rel_path": "jobs/python/table_summary_job.py",
         "job_arguments": DEFAULT_TABLE,
     },
     {
-        "job_name": "sql_gold_table_summary",
+        "job_name": "sql_table_summary",
         "job_type": "Spark SQL",
-        "sql_file_rel_path": "jobs/sql/gold_table_summary.sql",
+        "sql_file_rel_path": "jobs/sql/table_summary.sql",
     },
 ]
 

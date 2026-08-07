@@ -1,16 +1,16 @@
-# JAR Job: Gold Table Summary
+# JAR Job: Table Summary
 
-Demonstrates a Yeedu `job_type: JAR` job. `gold-table-summary-job-1.0.jar`
-is committed straight into this repo — same as everything else here, it
+Demonstrates a Yeedu `job_type: JAR` job. `table-summary-job-1.0.jar` is
+committed straight into this repo — same as everything else here, it
 gets pulled into the workspace by the `git clone` step, so the job config
 just points at the same in-workspace path convention as the Python/SQL
-demos (`{REPO_WORKSPACE_PATH}/jobs/jar/gold-table-summary-job-1.0.jar`),
-no separate upload step and no dependency on whatever a given Yeedu
-instance happens to have vendored internally.
+demos (`{REPO_WORKSPACE_PATH}/jobs/jar/table-summary-job-1.0.jar`), no
+separate upload step and no dependency on whatever a given Yeedu instance
+happens to have vendored internally.
 
-`GoldTableSummaryJob` (Java) is the JAR equivalent of
-`../python/gold_table_summary_job.py` and `../sql/gold_table_summary.sql`
-— same "query a gold table" idea, different job type: prints a gold
+`TableSummaryJob` (Java) is the JAR equivalent of
+`../python/table_summary_job.py` and `../sql/table_summary.sql` — same
+"query a business-metric table" idea, different job type: prints a
 table's row count and top 10 rows. Takes the table name as its one
 argument (`job_arguments`).
 
@@ -22,14 +22,14 @@ filesystem, not needed for a workspace-relative path).
 
 ```
 job_type:       JAR
-job_command:    <workspace path to gold-table-summary-job-1.0.jar>
-job_class_name: io.yeedu.demo.GoldTableSummaryJob
-job_arguments:  nyc_taxi.gold_taxi_trip_summary_v1
+job_command:    <workspace path to table-summary-job-1.0.jar>
+job_class_name: io.yeedu.demo.TableSummaryJob
+job_arguments:  retail.customer_rfm_segments_v1
 ```
 
-Requires `nyc_taxi.gold_taxi_trip_summary_v1` to already exist — run
-`notebooks/data-generators/bronze_ingest_nyc_taxi.ipynb` and
-`notebooks/data-transformation/gold_taxi_trip_summary_v1.ipynb` first.
+Requires `retail.customer_rfm_segments_v1` to already exist — run
+`notebooks/data-generators/retail_order_ingest.ipynb` and
+`notebooks/data-transformation/customer_rfm_segmentation.ipynb` first.
 
 ## Why a thin jar
 
@@ -50,7 +50,7 @@ compatible with 11/17 runtimes.
 ```bash
 cd jobs/jar
 mvn package
-cp target/gold-table-summary-job-1.0.jar .
+cp target/table-summary-job-1.0.jar .
 ```
 
 `<spark.version>`/`<scala.binary.version>` in `pom.xml` should match your

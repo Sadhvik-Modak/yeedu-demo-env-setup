@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>io.yeedu.demo</groupId>
-  <artifactId>gold-table-summary-job</artifactId>
+  <artifactId>table-summary-job</artifactId>
   <version>1.0</version>
   <packaging>jar</packaging>
 

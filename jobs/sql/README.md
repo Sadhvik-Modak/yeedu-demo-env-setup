@@ -1,10 +1,10 @@
-# SQL Job: Gold Table Summary
+# SQL Job: Table Summary
 
 Demonstrates a Yeedu `job_type: SQL` job (CLI display name: `Spark SQL`) —
 a `.sql` script run directly, no Python/JVM code at all.
 
-`gold_table_summary.sql` selects the 10 most recent rows from the NYC Taxi
-gold summary table.
+`table_summary.sql` selects the top-scoring customer segments from the
+digital marketing RFM table.
 
 ## Deploy config
 
@@ -17,12 +17,12 @@ and not the raw text inline.
 
 ```
 job_type:         Spark SQL
-job_rawScalaCode: <contents of gold_table_summary.sql, via a local file path>
+job_rawScalaCode: <contents of table_summary.sql, via a local file path>
 ```
 
-Requires `nyc_taxi.gold_taxi_trip_summary_v1` to already exist — run
-`notebooks/data-generators/bronze_ingest_nyc_taxi.ipynb` and
-`notebooks/data-transformation/gold_taxi_trip_summary_v1.ipynb` first.
+Requires `retail.customer_rfm_segments_v1` to already exist — run
+`notebooks/data-generators/retail_order_ingest.ipynb` and
+`notebooks/data-transformation/customer_rfm_segmentation.ipynb` first.
 
 Config creation is confirmed (verified via `yeedu job get` — the stored
 `job_rawScalaCode` matches this file byte for byte). Actual execution is
