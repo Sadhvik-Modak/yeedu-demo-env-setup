@@ -1,0 +1,2 @@
+yeedu-cli
+pyyaml>=6,<7
