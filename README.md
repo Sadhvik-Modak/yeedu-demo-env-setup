@@ -17,12 +17,9 @@ ready whenever needed, without hand-clicking through setup each time.
   a bronze-ingest generator notebook and a gold-transform notebook
   (DataFrame API + `%%sql` variant), plus `visualization/` (Plotly charts,
   including a genuinely live-polling earthquake map).
-- **[`clusters/`](clusters/README.md)** — S/M/L/XL Yeedu cluster tiers on
-  an OnPrem environment (config only, never started).
 - **[`automation/`](automation/README.md)** — `provision.py`: clones this
   repo into a Yeedu workspace and registers everything above as real Yeedu
   resources (jobs + notebooks), idempotently, driven by the `yeedu` CLI.
-  `create_clusters.py`: separately provisions the `clusters/` tiers.
 
 ## Quickest path to a working demo
 
