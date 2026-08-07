@@ -3,7 +3,7 @@ import os
 import re
 
 from clone_repo import REPO_WORKSPACE_PATH
-from yeedu_client import get_field, run_allow_not_found
+from yeedu_client import find_exact_match, get_field, run_allow_not_found
 
 FUNCTIONS_DEMOS = [
     {"dir": "iris", "function_name": "classify_plant_sample", "job_name": "iris_classify_plant_sample"},
@@ -35,7 +35,11 @@ def _find_job_id(client, workspace_id, job_name):
     result = run_allow_not_found(
         client, "job", "search", "--workspace_id", str(workspace_id), "--job_name", job_name
     )
-    return get_field(result, "job_id")
+    # See yeedu_client.find_exact_match — `search` can return prefix
+    # matches (confirmed live for `notebook search`); match jobs exactly
+    # too rather than trusting result order.
+    match = find_exact_match(result, "job_name", job_name)
+    return match.get("job_id") if match else None
 
 
 def deploy_all(client, repo_root, workspace_id, cluster_id=None, start=False):

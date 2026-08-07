@@ -100,6 +100,31 @@ def run_allow_not_found(client, *args):
         raise
 
 
+def find_exact_match(result, name_field, name_value):
+    """From a `search`-style response, return the entry whose `name_field`
+    EXACTLY equals `name_value` — never just the first hit.
+
+    Confirmed live (2026-08-07): `notebook search --notebook_name
+    gold_citibike_station_activity_v1` returned BOTH that notebook and
+    `gold_citibike_station_activity_v1_sql` (prefix match), in a `data`
+    list with the *wrong* one first. Blindly taking result[0]
+    (`get_field`'s list-handling) silently returns a different resource's
+    id whenever one resource's name is a prefix of another's — exactly the
+    `<name>` / `<name>_sql` pattern this repo's notebooks use throughout.
+    """
+    if result is None:
+        return None
+    entries = result.get("data") if isinstance(result, dict) and "data" in result else result
+    if isinstance(entries, dict):
+        entries = [entries]
+    if not isinstance(entries, list):
+        return None
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get(name_field) == name_value:
+            return entry
+    return None
+
+
 def get_field(obj, *keys, default=None):
     """Best-effort field extraction from a `yeedu` CLI JSON response.
 
