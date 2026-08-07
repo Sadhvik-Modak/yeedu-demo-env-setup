@@ -11,6 +11,7 @@ with a real authenticated call (`iam get-user-info`) before the rest of the
 pipeline proceeds.
 """
 import os
+import subprocess
 
 import yaml
 
@@ -40,6 +41,34 @@ def inject_token(api_url, token):
 
     os.environ["YEEDU_RESTAPI_URL"] = api_url
     print(f"Wrote token to {YEEDU_YML_PATH} under env name '{ENV_NAME}'.")
+
+
+def login_with_credentials(api_url, username, password, dry_run=False):
+    """Log in via `yeedu configure` (username/password), instead of token
+    injection. Confirmed live (2026-08-07) as the reliable path when a
+    fresh token isn't in hand — see README "Confirmed live"."""
+    if dry_run:
+        print(f"[dry-run] would `yeedu configure --no-browser=true` as {username} against {api_url}")
+        os.environ["YEEDU_RESTAPI_URL"] = api_url
+        return
+
+    env = os.environ.copy()
+    env["YEEDU_RESTAPI_URL"] = api_url
+    env["YEEDU_USERNAME"] = username
+    env["YEEDU_PASSWORD"] = password
+
+    print(f"Logging in to {api_url} as {username}...")
+    result = subprocess.run(
+        ["yeedu", "configure", "--no-browser=true"],
+        env=env, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"`yeedu configure` failed (exit {result.returncode}): "
+            f"{result.stderr.strip() or result.stdout.strip()}"
+        )
+    print("Login OK.")
+    os.environ["YEEDU_RESTAPI_URL"] = api_url
 
 
 def smoke_test(client):

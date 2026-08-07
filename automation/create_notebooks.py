@@ -10,7 +10,7 @@ the caller can check the Yeedu UI before batch-creating the rest.
 import os
 
 from clone_repo import REPO_WORKSPACE_PATH
-from yeedu_client import get_field
+from yeedu_client import get_field, run_allow_not_found
 
 
 def _discover_notebooks(repo_root):
@@ -28,7 +28,9 @@ def _discover_notebooks(repo_root):
 
 
 def _find_notebook_id(client, workspace_id, notebook_name):
-    result = client.run("notebook", "search", "--workspace_id", str(workspace_id), "--notebook_name", notebook_name)
+    result = run_allow_not_found(
+        client, "notebook", "search", "--workspace_id", str(workspace_id), "--notebook_name", notebook_name
+    )
     return get_field(result, "notebook_id")
 
 

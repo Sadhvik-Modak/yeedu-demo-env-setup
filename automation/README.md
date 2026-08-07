@@ -27,14 +27,25 @@ python3 automation/provision.py \
   --api-url https://<host>:8080 \
   --token <pre-obtained yeedu api token> \
   --tenant-id <tenant_id> \
-  --workspace-id <workspace_id> \
+  [--workspace-id <workspace_id>] \
+  [--workspace-name <name>] \
   [--cluster-id <cluster_id>] \
   [--git-branch main] \
   [--start] \
   [--skip-notebook-confirm] \
+  [--insecure] \
   [--dry-run]
 ```
 
+Auth: pass **either** `--token <token>`, **or** `--username <u> --password
+<p>` (falls back to a real `yeedu configure` login instead of token
+injection — use this if you don't have a fresh token handy).
+
+- `--workspace-id` is optional. If omitted, a **new** workspace is created
+  every run (name `yeedu-demo-<timestamp>`, override with
+  `--workspace-name`) — not idempotent by design, since a fresh workspace
+  per run was the explicit ask. Pass an existing `--workspace-id` to reuse
+  one instead (jobs/notebooks stay idempotent either way).
 - `--cluster-id` is optional. Without it, jobs/notebooks are created but
   **not** started (a cluster is required to actually run anything) —
   matches "run isn't mandatory this pass."
@@ -51,59 +62,66 @@ python3 automation/provision.py \
   it against a known dev/QA sandbox.
 - Run `--dry-run` at least once before a real run.
 
-## Confirmed live (2026-08-07, against dev-onprem-008)
+## Confirmed live (2026-08-07, dev-onprem-008, tenant 3337654a-ec94-4f4f-9eac-5907d8dae9ed)
 
-- The `yeedu.yml` token-injection mechanism (Known gap #1) **does work** —
-  the CLI picked up and used the injected token correctly with 3
-  environments configured (no ambiguity/wrong-env issue hit). Full
-  success-path response shape is still unconfirmed (the token used for
-  this test had expired), but the injection + selection mechanism itself
-  is no longer a guess.
-- Found and fixed two real bugs this surfaced:
-  - `YeeduClient.run()` was treating exit code 0 as success even when the
-    response *body* was an API-level error — `yeedu iam get-user-info`
-    with an expired token exits 0 with
-    `{'error_code': 'RFA-000001', 'error_message': 'User session has
-    expired. Please login again.'}`. Fixed: the body is now inspected for
-    `error_code`/`error_message` regardless of exit code.
-  - Despite the flag name, `--json-output default` does not always emit
-    real JSON — that error response above is **Python dict repr**
-    (single-quoted keys), which `json.loads` rejects. Fixed: falls back to
-    `ast.literal_eval` before giving up and treating output as opaque text.
+A full real run succeeded end to end: auth (both token-injection and
+username/password), tenant associate, workspace auto-create (`workspace_id
+957`), repo clone, all 3 Functions jobs (`job_id` 4215/4216/4217), and all
+17 notebooks (`notebook_id` 4218–4234) — including manually confirming in
+the Yeedu UI that the first notebook created showed real cloned cell
+content, not an empty notebook. **Known gaps #1 and #2 below are now
+resolved**, kept here as a record of what was actually verified vs.
+assumed going in:
+
+- **Token-injection via `yeedu.yml` works** — the CLI picked up and used an
+  injected token correctly with 3 environments configured, no
+  ambiguity/wrong-env issue. Username/password via `yeedu configure` also
+  confirmed working (`configure_auth.login_with_credentials`), for when a
+  fresh token isn't in hand.
+- **`notebook create --notebook_path <path>` does adopt the existing
+  cloned `.ipynb` file** — confirmed by manual UI check on notebook 4218
+  before batch-creating the rest.
+- Three real bugs found and fixed during this run:
+  1. `YeeduClient.run()` treated exit code 0 as success even when the
+     response *body* was an API-level error (e.g. an expired token still
+     exits 0 with `{'error_code': 'RFA-000001', ...}`). Fixed: body is
+     inspected for `error_code`/`error_message` regardless of exit code.
+  2. Despite the flag name, `--json-output default` doesn't always emit
+     real JSON — error bodies came back as **Python dict repr**
+     (single-quoted keys), which `json.loads` rejects. Fixed: falls back
+     to `ast.literal_eval`.
+  3. `job search` / `notebook search` for a name that doesn't exist yet
+     (the idempotency check) also exits 0 with an error-shaped body — and
+     the wording isn't consistent (`"...is not found within..."` for
+     jobs, `"No notebook matches were found for..."` for notebooks).
+     Fixed: `yeedu_client.run_allow_not_found()` catches both phrasings
+     and returns `None` instead of raising, so the idempotency check can
+     proceed to create the resource.
 - `YEEDU_CLI_VERIFY_SSL=false` is required against this host (self-signed
-  cert) — added as an explicit `--insecure` flag rather than a silent
-  default, per the skill's own TLS-weakening-needs-sign-off gotcha.
+  cert) — exposed as the explicit `--insecure` flag, per the skill's own
+  TLS-weakening-needs-sign-off gotcha, rather than a silent default.
 - Also hit the skill's documented gotcha #2 live: this machine's
-  `~/.bashrc` already exports a *third*, different `YEEDU_RESTAPI_URL`
-  (`dev-onprem-005`) — confirms the script must never rely on ambient
-  env vars for the target host, only explicit `--api-url`. `provision.py`
-  already does this correctly (via `configure_auth.inject_token`, not by
-  reading `YEEDU_RESTAPI_URL` from the shell).
+  `~/.bashrc` already exports a *different* default `YEEDU_RESTAPI_URL`
+  (`dev-onprem-005`) — confirms the script must never rely on ambient env
+  vars for the target host, only explicit `--api-url`/`--username`, which
+  `provision.py` already does correctly.
+- The new `--json-output`/exit-code/not-found findings were written back
+  into `~/.claude/skills/yeedu-cli/reference/known-issues-and-gotchas.md`
+  as gotcha #11 for future sessions.
 
 ## Known gaps — read before a real run
 
-1. **Full auth success-path response shape** — the token used above was
-   expired, so a *successful* `iam get-user-info` response was never
-   observed live, only the error shape. Re-run the smoke test
-   (`configure_auth.smoke_test`) with a fresh token to confirm.
-2. **`notebook create --notebook_path <path>` semantics are unverified.**
-   This script assumes it adopts an existing `.ipynb` file already present
-   at that path in the workspace (since the repo is git-cloned in first) —
-   that's the only reading that makes sense functionally, but no
-   confirmed schema or example says so either way. To de-risk: the script
-   creates the *first* notebook alone, prints its workspace path, and
-   pauses (`input()`) for you to check the Yeedu UI before batch-creating
-   the rest. Pass `--skip-notebook-confirm` once you've verified this once
-   and trust it. **If the created notebook comes back empty** instead of
-   showing the real bronze/gold/SQL cells, the fix is almost certainly to
-   push content via `yeedu workspace create-workspace-file` instead of (or
-   in addition to) `notebook create --notebook_path`, and
-   `create_notebooks.py` will need a follow-up patch — file location:
-   `automation/create_notebooks.py:_create_one`.
-3. **Git-clone and tenant-associate REST shapes** are sourced only from the
+1. **Git-clone and tenant-associate REST shapes** are sourced only from the
    `yeedu-cli` skill's CLI-level docs (2.10.1-live-verified per its own
    header), not from an OpenAPI spec — consistent with everything else
    this script does, but worth knowing if something doesn't match.
+2. **Clone response `file_id` extraction is unconfirmed** — `clone_repo.py`
+   couldn't find a `file_id`/`workspace_file_id`/`id` key in the real
+   `git clone` response during the live run (clone itself succeeded; only
+   the returned identifier used for the "already cloned, pull instead"
+   idempotency path is affected — that path was tested successfully via
+   `workspace list-workspace-files` name-matching instead, so this isn't
+   currently blocking, just an unconfirmed field name).
 
 ## Why the CLI, not raw REST
 
@@ -125,12 +143,12 @@ python3 automation/provision.py \
 | File | Purpose |
 |---|---|
 | `provision.py` | Entrypoint — argparse, runs steps 1-5 in order, prints a summary. |
-| `yeedu_client.py` | Subprocess wrapper: `YeeduClient.run(*args)` → parsed JSON, always appends `--json-output default`. |
-| `configure_auth.py` | Token injection + auth smoke test (Known gap #1). |
-| `resolve_tenant_workspace.py` | `iam associate-tenant`, `workspace get`. |
-| `clone_repo.py` | Idempotent git clone/pull; also defines `REPO_WORKSPACE_PATH`, the assumed in-workspace root (`/files/yeedu-demo-env-setup`) that `deploy_functions.py`/`create_notebooks.py` build paths from. |
+| `yeedu_client.py` | Subprocess wrapper: `YeeduClient.run(*args)` → parsed JSON, appends `--json-output default`, handles the exit-0-with-error-body and Python-repr quirks. `run_allow_not_found()` wraps idempotency-check calls, tolerating both "not found" wordings seen live. |
+| `configure_auth.py` | `inject_token()` (writes `~/.yeedu/yeedu.yml`) or `login_with_credentials()` (`yeedu configure` with username/password) — either path, then an auth smoke test. |
+| `resolve_tenant_workspace.py` | `iam associate-tenant`, `workspace get`, and `create_workspace()` (auto-creates a new workspace per run when `--workspace-id` is omitted). |
+| `clone_repo.py` | Idempotent git clone/pull; also defines `REPO_WORKSPACE_PATH`, the in-workspace root (`/files/yeedu-demo-env-setup`) that `deploy_functions.py`/`create_notebooks.py` build paths from. |
 | `deploy_functions.py` | Creates the 3 Functions jobs; strips version pins from `requirements.txt` per gotcha #4 (`--yeedu-functions-requirements` does a raw space-split, not JSON/comma parsing). |
-| `create_notebooks.py` | Discovers `notebooks/**/*.ipynb`, creates each as a notebook (Known gap #2). |
+| `create_notebooks.py` | Discovers `notebooks/**/*.ipynb`, creates each as a notebook; pauses after the first for a manual UI check unless `--skip-notebook-confirm`. |
 
 ## Verify without a live instance
 

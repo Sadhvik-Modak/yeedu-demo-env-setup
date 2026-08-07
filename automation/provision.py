@@ -25,9 +25,18 @@ from yeedu_client import YeeduClient  # noqa: E402
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--api-url", required=True, help="e.g. https://dev-onprem-008.yeedu.io:8080")
-    parser.add_argument("--token", required=True, help="Pre-obtained Yeedu API token")
+    parser.add_argument("--token", default=None, help="Pre-obtained Yeedu API token")
+    parser.add_argument("--username", default=None, help="Alternative to --token: username for `yeedu configure` login")
+    parser.add_argument("--password", default=None, help="Alternative to --token: password for `yeedu configure` login")
     parser.add_argument("--tenant-id", required=True)
-    parser.add_argument("--workspace-id", required=True)
+    parser.add_argument(
+        "--workspace-id", default=None,
+        help="Optional. If omitted, a new workspace is created for this run.",
+    )
+    parser.add_argument(
+        "--workspace-name", default=None,
+        help="Name for the auto-created workspace when --workspace-id is omitted (default: yeedu-demo-<timestamp>).",
+    )
     parser.add_argument(
         "--cluster-id", default=None,
         help="Optional. Without it, jobs/notebooks are created but not started.",
@@ -64,6 +73,9 @@ def main():
     args = parse_args()
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+    if not args.token and not (args.username and args.password):
+        raise SystemExit("Provide either --token, or both --username and --password.")
+
     if args.insecure:
         print("WARNING: --insecure set — TLS certificate verification is disabled for this run.")
         os.environ["YEEDU_CLI_VERIFY_SSL"] = "false"
@@ -71,29 +83,38 @@ def main():
     client = YeeduClient(dry_run=args.dry_run)
 
     print("== Step 1/5: Auth ==")
-    configure_auth.inject_token(args.api_url, args.token)
+    if args.token:
+        configure_auth.inject_token(args.api_url, args.token)
+    else:
+        configure_auth.login_with_credentials(
+            args.api_url, args.username, args.password, dry_run=args.dry_run
+        )
     configure_auth.smoke_test(client)
 
     print("\n== Step 2/5: Tenant + workspace ==")
     resolve_tenant_workspace.associate_tenant(client, args.tenant_id)
-    resolve_tenant_workspace.resolve_workspace(client, args.workspace_id)
+    if args.workspace_id:
+        workspace_id = resolve_tenant_workspace.resolve_workspace(client, args.workspace_id)
+    else:
+        workspace_id = resolve_tenant_workspace.create_workspace(client, name=args.workspace_name)
 
     print("\n== Step 3/5: Clone repo into workspace ==")
-    clone_repo.clone_or_pull(client, args.workspace_id, git_branch=args.git_branch)
+    clone_repo.clone_or_pull(client, workspace_id, git_branch=args.git_branch)
 
     print("\n== Step 4/5: Yeedu Functions jobs ==")
     jobs = deploy_functions.deploy_all(
-        client, repo_root, args.workspace_id,
+        client, repo_root, workspace_id,
         cluster_id=args.cluster_id, start=args.start,
     )
 
     print("\n== Step 5/5: Notebooks ==")
     notebooks = create_notebooks.create_all(
-        client, repo_root, args.workspace_id,
+        client, repo_root, workspace_id,
         cluster_id=args.cluster_id, skip_confirm=args.skip_notebook_confirm,
     )
 
     print("\n== Summary ==")
+    print(f"Workspace: {workspace_id}")
     print(f"Jobs: {len(jobs)} created/reused")
     for j in jobs:
         run_suffix = f" run_id={j['run_id']}" if j.get("run_id") else ""

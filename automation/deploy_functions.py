@@ -3,7 +3,7 @@ import os
 import re
 
 from clone_repo import REPO_WORKSPACE_PATH
-from yeedu_client import get_field
+from yeedu_client import get_field, run_allow_not_found
 
 FUNCTIONS_DEMOS = [
     {"dir": "iris", "function_name": "classify_plant_sample", "job_name": "iris_classify_plant_sample"},
@@ -32,7 +32,9 @@ def _bare_requirements(requirements_txt_path):
 
 
 def _find_job_id(client, workspace_id, job_name):
-    result = client.run("job", "search", "--workspace_id", str(workspace_id), "--job_name", job_name)
+    result = run_allow_not_found(
+        client, "job", "search", "--workspace_id", str(workspace_id), "--job_name", job_name
+    )
     return get_field(result, "job_id")
 
 

@@ -78,6 +78,28 @@ class YeeduClient:
         return parsed
 
 
+# Confirmed live (2026-08-07) against dev-onprem-008 — wording is NOT
+# consistent across search endpoints, both exit 0 with an error-shaped
+# body: `job search` says "...is not found within the Spark job for
+# workspace id: 957"; `notebook search` says "No notebook matches were
+# found for the provided notebook name...". Match on both phrasings.
+_NOT_FOUND_PATTERNS = ("not found", "were found for")
+
+
+def run_allow_not_found(client, *args):
+    """Like `client.run(*args)`, but returns None instead of raising when
+    the CLI's error body indicates a `search`/`get` miss (see
+    _NOT_FOUND_PATTERNS). Idempotency checks need to treat that as "doesn't
+    exist yet, go ahead and create it," not a fatal error."""
+    try:
+        return client.run(*args)
+    except YeeduCommandError as exc:
+        msg = str(exc).lower()
+        if any(p in msg for p in _NOT_FOUND_PATTERNS):
+            return None
+        raise
+
+
 def get_field(obj, *keys, default=None):
     """Best-effort field extraction from a `yeedu` CLI JSON response.
 
