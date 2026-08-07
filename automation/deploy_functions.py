@@ -85,5 +85,5 @@ def deploy_all(client, repo_root, workspace_id, cluster_id=None, start=False):
         elif start and not cluster_id:
             print("--start requested but no --cluster-id given — skipping start (jobs need a cluster to run on).")
 
-        created.append({"job_name": demo["job_name"], "job_id": job_id, "run_id": run_id})
+        created.append({"job_name": demo["job_name"], "job_type": "Functions", "job_id": job_id, "run_id": run_id})
     return created

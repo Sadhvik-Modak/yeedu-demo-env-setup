@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Provisions a Yeedu workspace from this repo: clone the repo in, register
-each functions/ demo as a Yeedu Functions job, register each notebooks/
-notebook.
+each functions/ demo as a Yeedu Functions job, register each jobs/ demo
+(Jar/Python3/SQL), register each notebooks/ notebook.
 
 Targets Yeedu platform 2.10.1 via the `yeedu` CLI (see
 automation/README.md for why, and for the assumptions this script makes
@@ -18,6 +18,7 @@ import clone_repo  # noqa: E402
 import configure_auth  # noqa: E402
 import create_notebooks  # noqa: E402
 import deploy_functions  # noqa: E402
+import deploy_other_jobs  # noqa: E402
 import resolve_tenant_workspace  # noqa: E402
 from yeedu_client import YeeduClient  # noqa: E402
 
@@ -42,6 +43,16 @@ def parse_args():
         help="Optional. Without it, jobs/notebooks are created but not started.",
     )
     parser.add_argument("--git-branch", default="main")
+    parser.add_argument(
+        "--spark-examples-jar", default=None,
+        help=(
+            "file:// path to Yeedu's vendored spark-examples jar for the "
+            "jar_spark_pi demo (default: "
+            f"{deploy_other_jobs.DEFAULT_SPARK_EXAMPLES_JAR!r}, Spark 3.2.2/"
+            "Scala 2.12 — override if your target cluster runs a different "
+            "spark_infra_version)."
+        ),
+    )
     parser.add_argument(
         "--start", action="store_true",
         help="Start Functions jobs after creating them (requires --cluster-id).",
@@ -82,7 +93,7 @@ def main():
 
     client = YeeduClient(dry_run=args.dry_run)
 
-    print("== Step 1/5: Auth ==")
+    print("== Step 1/6: Auth ==")
     if args.token:
         configure_auth.inject_token(args.api_url, args.token)
     else:
@@ -91,34 +102,44 @@ def main():
         )
     configure_auth.smoke_test(client)
 
-    print("\n== Step 2/5: Tenant + workspace ==")
+    print("\n== Step 2/6: Tenant + workspace ==")
     resolve_tenant_workspace.associate_tenant(client, args.tenant_id)
     if args.workspace_id:
         workspace_id = resolve_tenant_workspace.resolve_workspace(client, args.workspace_id)
     else:
         workspace_id = resolve_tenant_workspace.create_workspace(client, name=args.workspace_name)
 
-    print("\n== Step 3/5: Clone repo into workspace ==")
+    print("\n== Step 3/6: Clone repo into workspace ==")
     clone_repo.clone_or_pull(client, workspace_id, git_branch=args.git_branch)
 
-    print("\n== Step 4/5: Yeedu Functions jobs ==")
-    jobs = deploy_functions.deploy_all(
+    print("\n== Step 4/6: Yeedu Functions jobs ==")
+    function_jobs = deploy_functions.deploy_all(
         client, repo_root, workspace_id,
         cluster_id=args.cluster_id, start=args.start,
     )
 
-    print("\n== Step 5/5: Notebooks ==")
+    print("\n== Step 5/6: Other job types (Jar / Python3 / SQL) ==")
+    other_jobs = deploy_other_jobs.deploy_all(
+        client, repo_root, workspace_id,
+        cluster_id=args.cluster_id, start=args.start,
+        spark_examples_jar=args.spark_examples_jar,
+    )
+
+    print("\n== Step 6/6: Notebooks ==")
     notebooks = create_notebooks.create_all(
         client, repo_root, workspace_id,
         cluster_id=args.cluster_id, skip_confirm=args.skip_notebook_confirm,
     )
 
+    all_jobs = function_jobs + other_jobs
+
     print("\n== Summary ==")
     print(f"Workspace: {workspace_id}")
-    print(f"Jobs: {len(jobs)} created/reused")
-    for j in jobs:
+    print(f"Jobs: {len(all_jobs)} created/reused")
+    for j in all_jobs:
         run_suffix = f" run_id={j['run_id']}" if j.get("run_id") else ""
-        print(f"  - {j['job_name']}: job_id={j['job_id']}{run_suffix}")
+        job_type_prefix = f"[{j['job_type']}] " if j.get("job_type") else ""
+        print(f"  - {job_type_prefix}{j['job_name']}: job_id={j['job_id']}{run_suffix}")
     print(f"Notebooks: {len(notebooks)} created/reused this run")
     for n in notebooks:
         print(f"  - {n['notebook_name']}: notebook_id={n['notebook_id']}")

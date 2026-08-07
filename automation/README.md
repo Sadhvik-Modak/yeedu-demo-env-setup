@@ -5,7 +5,8 @@ Provisions a live Yeedu workspace from this repo, end to end:
 1. Clones [`Sadhvik-Modak/yeedu-demo-env-setup`](https://github.com/Sadhvik-Modak/yeedu-demo-env-setup)
    into the target workspace (idempotent — pulls instead of re-cloning if
    already present).
-2. Registers each `functions/*` demo as a Yeedu Functions job (idempotent —
+2. Registers each `functions/*` demo as a Yeedu Functions job, and each
+   `jobs/{jar,python,sql}` demo as its respective job type (idempotent —
    reuses an existing job by name instead of duplicating).
 3. Registers each `notebooks/**/*.ipynb` as a Yeedu notebook, with
    `notebook_type` inferred from the filename (`*_sql.ipynb` → `sql`,
@@ -31,6 +32,7 @@ python3 automation/provision.py \
   [--workspace-name <name>] \
   [--cluster-id <cluster_id>] \
   [--git-branch main] \
+  [--spark-examples-jar <file:// path>] \
   [--start] \
   [--skip-notebook-confirm] \
   [--insecure] \
@@ -49,10 +51,15 @@ injection — use this if you don't have a fresh token handy).
 - `--cluster-id` is optional. Without it, jobs/notebooks are created but
   **not** started (a cluster is required to actually run anything) —
   matches "run isn't mandatory this pass."
-- `--start` additionally starts each Functions job after creating it
-  (requires `--cluster-id`; ignored otherwise, with a warning). Notebooks
-  are never auto-started by this script — start them from the Yeedu UI or
-  `yeedu notebook start` once you've confirmed they look right.
+- `--spark-examples-jar` overrides the `file://` path to Yeedu's vendored
+  `spark-examples` jar used by the `jar_spark_pi` demo (default targets
+  Spark 3.2.2/Scala 2.12 — override if your target cluster runs a
+  different `spark_infra_version`).
+- `--start` additionally starts each Functions/JAR/Python/SQL job after
+  creating it (requires `--cluster-id`; ignored otherwise, with a
+  warning). Notebooks are never auto-started by this script — start them
+  from the Yeedu UI or `yeedu notebook start` once you've confirmed they
+  look right.
 - `--dry-run` prints every `yeedu` command this script would run, without
   executing anything — run this first against your real values to sanity
   check the command construction before touching a live workspace.
@@ -116,6 +123,33 @@ here as a record of what was actually verified vs. assumed going in:
   `~/.claude/skills/yeedu-cli/reference/known-issues-and-gotchas.md` as
   gotcha #11 for future sessions.
 
+**Follow-up session, same day:** added `jobs/{jar,python,sql}` (the
+remaining job types beyond Functions) and confirmed their `job create`
+payload shapes live:
+
+- `job_type: JAR` — CLI enum value is `JAR` (all caps), not `Jar` as shown
+  in Yeedu's own OpenAPI example. `job_command` = a `file://` path (Yeedu
+  vendors `spark-examples_2.12-3.2.2.jar` internally at
+  `file:///yeedu/object-storage-manager/...` — no custom build needed) +
+  `job_class_name` + `job_arguments`. Confirmed: `job create` succeeded
+  (`job_id` 4236).
+- `job_type: Python` — same shape as JAR: `job_command` = workspace path
+  to the `.py` file, `job_arguments` = CLI args. Confirmed (`job_id` 4237).
+- `job_type: Spark SQL` — **different from both**: rejects `job_command`
+  outright ("Please provide 'job_rawScalaCode' for Spark job of job type
+  'Spark SQL'"). The query goes in `job_rawScalaCode`, and
+  `--job-raw-scala-code` takes a **local filesystem path** (read
+  client-side by the `yeedu` CLI itself and uploaded — confirmed by a
+  second rejection when the raw SQL text was passed directly: "The file
+  cannot be found at '\<the SQL text\>' for the argument
+  --job_raw_scala_code"). Confirmed correct via `yeedu job get` — stored
+  `job_rawScalaCode` matches `jobs/sql/gold_table_summary.sql` exactly
+  (`job_id` 4238).
+- These three findings were added to the skill as gotcha #13.
+- Still unconfirmed: actual **execution** of any of the 6 job types (no
+  cluster available this session — see Known gap #4 below). Config
+  creation is confirmed for all 6.
+
 ## Known gaps — read before a real run
 
 1. **Git-clone and tenant-associate REST shapes** are sourced only from the
@@ -135,6 +169,12 @@ here as a record of what was actually verified vs. assumed going in:
    ends up correct on the *next* run. It's still worth checking the UI
    once per fresh Yeedu version/host in case the platform's behavior here
    changes again.
+4. **No job has actually been run/executed** — every "confirmed" above is
+   at the config-creation level (`job create` / `job get` accepted and
+   stored what was expected). Whether each job type *runs* correctly
+   (JAR class resolves, Python script imports work, SQL executes) is
+   still unverified — needs `--cluster-id` and `--start`, or manually
+   starting from the Yeedu UI, against a live cluster.
 
 ## Why the CLI, not raw REST
 
@@ -155,12 +195,13 @@ here as a record of what was actually verified vs. assumed going in:
 
 | File | Purpose |
 |---|---|
-| `provision.py` | Entrypoint — argparse, runs steps 1-5 in order, prints a summary. |
+| `provision.py` | Entrypoint — argparse, runs steps 1-6 in order, prints a summary. |
 | `yeedu_client.py` | Subprocess wrapper: `YeeduClient.run(*args)` → parsed JSON, appends `--json-output default`, handles the exit-0-with-error-body and Python-repr quirks. `run_allow_not_found()` wraps idempotency-check calls, tolerating both "not found" wordings seen live. `find_exact_match()` filters `search` results for an exact name match (search returns prefix matches too). |
 | `configure_auth.py` | `inject_token()` (writes `~/.yeedu/yeedu.yml`) or `login_with_credentials()` (`yeedu configure` with username/password) — either path, then an auth smoke test. |
 | `resolve_tenant_workspace.py` | `iam associate-tenant`, `workspace get`, and `create_workspace()` (auto-creates a new workspace per run when `--workspace-id` is omitted). |
 | `clone_repo.py` | Idempotent git clone/pull; also defines `REPO_WORKSPACE_PATH`, the in-workspace root (`/files/yeedu-demo-env-setup`) that `deploy_functions.py`/`create_notebooks.py` build paths from. |
 | `deploy_functions.py` | Creates the 3 Functions jobs; strips version pins from `requirements.txt` per gotcha #4 (`--yeedu-functions-requirements` does a raw space-split, not JSON/comma parsing). |
+| `deploy_other_jobs.py` | Creates the 3 remaining job types (`jobs/{jar,python,sql}`): JAR/Python use `job_command` (a path); SQL uses `--job-raw-scala-code <local file path>` instead — see "Confirmed live". |
 | `create_notebooks.py` | Discovers `notebooks/**/*.ipynb`, creates (or reuses) each as a notebook, then force-pushes real content via `workspace create-workspace-file --overwrite true` every run (notebook create alone leaves it blank — see "Confirmed live"); pauses after the first for a manual UI check unless `--skip-notebook-confirm`. |
 
 ## Verify without a live instance
