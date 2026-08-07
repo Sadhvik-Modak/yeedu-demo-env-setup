@@ -7,6 +7,7 @@ development; the CLI is the version-matched, quirk-documented interface).
 """
 import ast
 import json
+import re
 import subprocess
 
 
@@ -66,11 +67,30 @@ class YeeduClient:
         # still exits 0 with a JSON *body* like
         # {"error_code": "RFA-000001", "error_message": "User session has
         # expired. Please login again."} — exit code alone is not a
-        # reliable success signal, the body must be inspected too.
-        api_error = isinstance(parsed, dict) and ("error_code" in parsed or "error_message" in parsed)
+        # reliable success signal, the body must be inspected too. Also
+        # confirmed: a validation failure (e.g. `job create --job-type
+        # Spark SQL` with no --job-raw-scala-code) can come back as a bare
+        # {"error": "..."} instead.
+        #
+        # NOT caught here, and NOT generically fixable: a THIRD shape,
+        # {"message": "..."}, is used for both success ("Git clone repo
+        # has been initiated.") and failure ("Please provide any one of
+        # file_id or file_path...") with no other distinguishing field —
+        # confirmed live via `git clone` silently no-op'ing without
+        # --file_path and returning the latter with exit 0. There is no
+        # reliable way to tell these apart from the response alone; any
+        # caller relying on a bare "message" response for a
+        # side-effecting call should independently verify the effect
+        # actually happened (see clone_repo.py's clone-status polling for
+        # a worked example) rather than trusting this wrapper.
+        api_error = isinstance(parsed, dict) and (
+            "error_code" in parsed or "error_message" in parsed or "error" in parsed
+        )
 
         if result.returncode != 0 or api_error:
-            message = parsed.get("error_message") if isinstance(parsed, dict) else None
+            message = None
+            if isinstance(parsed, dict):
+                message = parsed.get("error_message") or parsed.get("error")
             raise YeeduCommandError(
                 full_args, result.returncode, result.stdout, result.stderr, message=message
             )
@@ -78,24 +98,27 @@ class YeeduClient:
         return parsed
 
 
-# Confirmed live (2026-08-07) against dev-onprem-008 — wording is NOT
-# consistent across search endpoints, both exit 0 with an error-shaped
-# body: `job search` says "...is not found within the Spark job for
-# workspace id: 957"; `notebook search` says "No notebook matches were
-# found for the provided notebook name...". Match on both phrasings.
-_NOT_FOUND_PATTERNS = ("not found", "were found for")
+# Confirmed live (2026-08-07) against dev-onprem-008 — "not found" wording
+# is NOT consistent across endpoints, all exit 0 with an error-shaped body:
+# `job search` (nonexistent job): "...is not found within the Spark job
+# for workspace id: 957"; `notebook search` (nonexistent notebook): "No
+# notebook matches were found for the provided notebook name..."; `list-
+# workspace-files` (empty/new workspace): "No workspace files found for
+# the specified workspace ID: 959...". A plain substring list kept missing
+# new phrasings each time, so this is a regex covering the shared
+# skeleton: "not found" anywhere, or "no ... found" (any words between).
+_NOT_FOUND_RE = re.compile(r"not\s+found|\bno\b.*\bfound\b", re.IGNORECASE)
 
 
 def run_allow_not_found(client, *args):
     """Like `client.run(*args)`, but returns None instead of raising when
-    the CLI's error body indicates a `search`/`get` miss (see
-    _NOT_FOUND_PATTERNS). Idempotency checks need to treat that as "doesn't
+    the CLI's error body indicates a `search`/`list`/`get` miss (see
+    _NOT_FOUND_RE). Idempotency checks need to treat that as "doesn't
     exist yet, go ahead and create it," not a fatal error."""
     try:
         return client.run(*args)
     except YeeduCommandError as exc:
-        msg = str(exc).lower()
-        if any(p in msg for p in _NOT_FOUND_PATTERNS):
+        if _NOT_FOUND_RE.search(str(exc)):
             return None
         raise
 

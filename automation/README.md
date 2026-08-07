@@ -3,8 +3,9 @@
 Provisions a live Yeedu workspace from this repo, end to end:
 
 1. Clones [`Sadhvik-Modak/yeedu-demo-env-setup`](https://github.com/Sadhvik-Modak/yeedu-demo-env-setup)
-   into the target workspace (idempotent — pulls instead of re-cloning if
-   already present).
+   into the target workspace (async — polls `git clone-status` to
+   completion; idempotent — pulls instead of re-cloning if a real
+   git-tracked folder already exists).
 2. Registers each `functions/*` demo as a Yeedu Functions job, and each
    `jobs/{jar,python,sql}` demo as its respective job type (idempotent —
    reuses an existing job by name instead of duplicating).
@@ -133,7 +134,7 @@ payload shapes live:
   else" pattern as Python/SQL/notebooks, rather than depending on
   whatever a given Yeedu instance happens to have vendored internally.
   Re-confirmed working with the new path/class
-  (`io.yeedu.demo.GoldTableSummaryJob`, `job_id` 4262 on workspace 958).
+  (`io.yeedu.demo.GoldTableSummaryJob`, `job_id` 4266 on workspace 959).
 - `job_type: Python` — same shape as JAR: `job_command` = workspace path
   to the `.py` file, `job_arguments` = CLI args. Confirmed (`job_id` 4237).
 - `job_type: Spark SQL` — **different from both**: rejects `job_command`
@@ -147,9 +148,54 @@ payload shapes live:
   `job_rawScalaCode` matches `jobs/sql/gold_table_summary.sql` exactly
   (`job_id` 4238).
 - These three findings were added to the skill as gotcha #13.
-- Still unconfirmed: actual **execution** of any of the 6 job types (no
-  cluster available this session — see Known gap #4 below). Config
-  creation is confirmed for all 6.
+
+**Third session, same day — critical bug found by re-validating in a fresh
+workspace:** `functions/`, `jobs/`, `automation/`, and the root files had
+**never actually been cloned into any workspace** (957 or 958, both now
+considered broken/invalid — do not reuse them). Only `notebooks/` existed
+in either, and only because `create_notebooks.py`'s own
+`create-workspace-file` calls create that directory path as a side
+effect — completely independent of `git clone`. Every prior "confirmed"
+job (Functions ×3, JAR, Python, SQL) had been pointing at files that were
+never actually present; `job create`/`job get` don't validate file
+existence, so nothing caught it until manually listing workspace files.
+
+Root cause, two compounding bugs:
+1. **`git clone` silently requires `--file_id` or `--file_path`** — the
+   yeedu-cli skill's docs list both as optional; they're not. Without one,
+   the API returns exit 0 with `{'message': 'Please provide any one of
+   file_id or file_path to clone a repo into a workspace.'}` — no
+   `error_code`/`error_message`/`error` key, so it slipped straight past
+   `YeeduClient`'s error detection and was treated as success.
+2. **The "already cloned" idempotency check used the wrong key name**
+   (`file_id` instead of the actual `workspace_file_id`), so even if a
+   real git-tracked folder had existed, its id would've silently resolved
+   to `None`.
+
+Also confirmed while fixing this: **`git clone` is asynchronous** — the
+real response is `{'message': 'Git clone repo has been initiated.',
+'workspace_file_id': ...}`, and `git clone-status --file_id <id>` needs
+polling (took ~60s in testing, `job_status: CLONE_STARTED` →
+`COMPLETED`) before the files actually exist.
+
+Fixed: `clone_repo.py` now passes `--file_path /`, extracts
+`workspace_file_id` correctly, and polls `clone-status` to completion
+(raising on failure/timeout) before returning — callers can now actually
+trust the repo is present. The idempotency check also now requires
+`is_git: true` on a name-matched folder, so a contaminated non-git folder
+(like the ones left in 957/958) can't be mistaken for a real prior clone.
+Also broadened the "not found" detector from a literal-phrase list to a
+regex (`_NOT_FOUND_RE`) after finding a *fourth* distinct phrasing
+(`"No workspace files found for..."` on an empty/new workspace) that the
+old list missed too.
+
+**Re-validated end to end in a brand-new workspace 959** with all fixes
+applied: clone genuinely completes (`functions/`, `jobs/`, `automation/`,
+`README.md` all verified present via `workspace get-workspace-file`,
+`is_git: true`, correct byte sizes matching the local repo — e.g. the jar
+at exactly 3273 bytes), all 6 jobs (`job_id` 4263–4268), all 17 notebooks
+(`notebook_id` 4269–4285). This is the first workspace that's actually
+fully correct.
 
 ## Known gaps — read before a real run
 
@@ -157,25 +203,26 @@ payload shapes live:
    `yeedu-cli` skill's CLI-level docs (2.10.1-live-verified per its own
    header), not from an OpenAPI spec — consistent with everything else
    this script does, but worth knowing if something doesn't match.
-2. **Clone response `file_id` extraction is unconfirmed** — `clone_repo.py`
-   couldn't find a `file_id`/`workspace_file_id`/`id` key in the real
-   `git clone` response during the live run (clone itself succeeded; only
-   the returned identifier used for the "already cloned, pull instead"
-   idempotency path is affected — that path was tested successfully via
-   `workspace list-workspace-files` name-matching instead, so this isn't
-   currently blocking, just an unconfirmed field name).
-3. **The "verify one notebook first" pause is now a soft check, not a hard
+2. **The "verify one notebook first" pause is now a soft check, not a hard
    guarantee** — content is force-pushed for every notebook on every run
    regardless, so even if the pause is skipped or answered wrong, content
    ends up correct on the *next* run. It's still worth checking the UI
    once per fresh Yeedu version/host in case the platform's behavior here
    changes again.
-4. **No job has actually been run/executed** — every "confirmed" above is
+3. **No job has actually been run/executed** — every "confirmed" above is
    at the config-creation level (`job create` / `job get` accepted and
-   stored what was expected). Whether each job type *runs* correctly
-   (JAR class resolves, Python script imports work, SQL executes) is
-   still unverified — needs `--cluster-id` and `--start`, or manually
-   starting from the Yeedu UI, against a live cluster.
+   stored what was expected, and now, additionally, the referenced files
+   are confirmed to actually exist). Whether each job type *runs*
+   correctly (JAR class resolves, Python script imports work, SQL
+   executes) is still unverified — needs `--cluster-id` and `--start`, or
+   manually starting from the Yeedu UI, against a live cluster.
+4. **`git pull`'s completion is not verified the way `git clone`'s now
+   is** — the idempotent "already cloned, pull latest" path calls `git
+   pull` and trusts a non-error response, without polling any
+   equivalent-to-clone-status check. Given how wrong that same assumption
+   turned out to be for `git clone`, treat this as unverified until
+   tested — if notebooks/jobs seem stale after a repo update, check this
+   first.
 
 ## Why the CLI, not raw REST
 
@@ -197,10 +244,10 @@ payload shapes live:
 | File | Purpose |
 |---|---|
 | `provision.py` | Entrypoint — argparse, runs steps 1-6 in order, prints a summary. |
-| `yeedu_client.py` | Subprocess wrapper: `YeeduClient.run(*args)` → parsed JSON, appends `--json-output default`, handles the exit-0-with-error-body and Python-repr quirks. `run_allow_not_found()` wraps idempotency-check calls, tolerating both "not found" wordings seen live. `find_exact_match()` filters `search` results for an exact name match (search returns prefix matches too). |
+| `yeedu_client.py` | Subprocess wrapper: `YeeduClient.run(*args)` → parsed JSON, appends `--json-output default`, handles the exit-0-with-error-body and Python-repr quirks. `run_allow_not_found()` wraps idempotency-check calls, tolerating "not found" via a regex (`_NOT_FOUND_RE` — 4 distinct wordings seen live). `find_exact_match()` filters `search` results for an exact name match (search returns prefix matches too). |
 | `configure_auth.py` | `inject_token()` (writes `~/.yeedu/yeedu.yml`) or `login_with_credentials()` (`yeedu configure` with username/password) — either path, then an auth smoke test. |
 | `resolve_tenant_workspace.py` | `iam associate-tenant`, `workspace get`, and `create_workspace()` (auto-creates a new workspace per run when `--workspace-id` is omitted). |
-| `clone_repo.py` | Idempotent git clone/pull; also defines `REPO_WORKSPACE_PATH`, the in-workspace root (`/files/yeedu-demo-env-setup`) that `deploy_functions.py`/`create_notebooks.py` build paths from. |
+| `clone_repo.py` | Async git clone with `clone-status` polling to actual completion (see "Confirmed live" — this used to silently no-op); idempotency requires `is_git: true` on the matched folder; also defines `REPO_WORKSPACE_PATH`, the in-workspace root (`/files/yeedu-demo-env-setup`) that `deploy_functions.py`/`create_notebooks.py` build paths from. |
 | `deploy_functions.py` | Creates the 3 Functions jobs; strips version pins from `requirements.txt` per gotcha #4 (`--yeedu-functions-requirements` does a raw space-split, not JSON/comma parsing). |
 | `deploy_other_jobs.py` | Creates the 3 remaining job types (`jobs/{jar,python,sql}`): JAR/Python use `job_command` (a path); SQL uses `--job-raw-scala-code <local file path>` instead — see "Confirmed live". |
 | `create_notebooks.py` | Discovers `notebooks/**/*.ipynb`, creates (or reuses) each as a notebook, then force-pushes real content via `workspace create-workspace-file --overwrite true` every run (notebook create alone leaves it blank — see "Confirmed live"); pauses after the first for a manual UI check unless `--skip-notebook-confirm`. |
