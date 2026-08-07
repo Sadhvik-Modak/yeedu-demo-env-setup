@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!--
+  Shared by both the metastore and hiveserver2 containers (mounted via
+  HIVE_CUSTOM_CONF_DIR). Each container only acts on the properties
+  relevant to its own service and ignores the rest.
+
+  Values wrapped in ${env.VAR} are resolved at runtime from the
+  container's environment (set via docker-compose from .env). Hadoop's
+  Configuration class expands these, no rebuild needed to change creds.
+-->
+<configuration>
+
+  <!-- Metastore DB connection (Postgres) -->
+  <property>
+    <name>javax.jdo.option.ConnectionURL</name>
+    <value>jdbc:postgresql://postgres:5432/${env.POSTGRES_DB}</value>
+  </property>
+  <property>
+    <name>javax.jdo.option.ConnectionDriverName</name>
+    <value>org.postgresql.Driver</value>
+  </property>
+  <property>
+    <name>javax.jdo.option.ConnectionUserName</name>
+    <value>${env.POSTGRES_USER}</value>
+  </property>
+  <property>
+    <name>javax.jdo.option.ConnectionPassword</name>
+    <value>${env.POSTGRES_PASSWORD}</value>
+  </property>
+
+  <!-- Where HiveServer2 finds the (remote) metastore -->
+  <property>
+    <name>hive.metastore.uris</name>
+    <value>thrift://metastore:9083</value>
+  </property>
+
+  <!-- Default table storage: MinIO (S3-compatible), bucket created by the
+       minio-init one-shot container. S3A connector settings in core-site.xml. -->
+  <property>
+    <name>hive.metastore.warehouse.dir</name>
+    <value>s3a://warehouse/</value>
+  </property>
+
+  <!-- Avoids "User hive is not allowed to perform this API call" on
+       get_current_notificationEventId at HS2 startup: that check requires
+       an explicit metastore admin allowlist we don't need for this demo. -->
+  <property>
+    <name>hive.metastore.event.db.notification.api.auth</name>
+    <value>false</value>
+  </property>
+
+  <!-- HiveServer2 basic (username/password) auth -->
+  <property>
+    <name>hive.server2.authentication</name>
+    <value>CUSTOM</value>
+  </property>
+  <property>
+    <name>hive.server2.custom.authentication.class</name>
+    <value>com.yeedu.demo.auth.SimplePasswdAuthenticator</value>
+  </property>
+
+</configuration>
