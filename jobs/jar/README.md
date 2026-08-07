@@ -1,44 +1,67 @@
-# JAR Job: SparkPi
+# JAR Job: Gold Table Summary
 
-Demonstrates a Yeedu `job_type: Jar` job — no custom build required.
+Demonstrates a Yeedu `job_type: JAR` job. `gold-table-summary-job-1.0.jar`
+is committed straight into this repo — same as everything else here, it
+gets pulled into the workspace by the `git clone` step, so the job config
+just points at the same in-workspace path convention as the Python/SQL
+demos (`{REPO_WORKSPACE_PATH}/jobs/jar/gold-table-summary-job-1.0.jar`),
+no separate upload step and no dependency on whatever a given Yeedu
+instance happens to have vendored internally.
 
-## Why no JAR is committed here
+`GoldTableSummaryJob` (Java) is the JAR equivalent of
+`../python/gold_table_summary_job.py` and `../sql/gold_table_summary.sql`
+— same "query a gold table" idea, different job type: prints a gold
+table's row count and top 10 rows. Takes the table name as its one
+argument (`job_arguments`).
 
-Yeedu's own OpenAPI documentation shows its platform already vendors Spark's
-bundled examples JAR internally, referenced by a local file URI:
+## Deploy config
+
+**Confirmed live (2026-08-07):** `job_command` = workspace path to the
+jar (no `file://` scheme — that's only for paths on Yeedu's own internal
+filesystem, not needed for a workspace-relative path).
 
 ```
-job_class_name: org.apache.spark.examples.SparkPi
-job_command:    file:///yeedu/object-storage-manager/spark-examples_2.12-3.2.2.jar
-job_arguments:  "1000"
+job_type:       JAR
+job_command:    <workspace path to gold-table-summary-job-1.0.jar>
+job_class_name: io.yeedu.demo.GoldTableSummaryJob
+job_arguments:  nyc_taxi.gold_taxi_trip_summary_v1
 ```
 
-(Apache Spark itself stopped publishing `spark-examples` as a standalone
-Maven Central artifact some time ago — it only ships bundled inside the
-full Spark binary distribution — so this vendored copy is the practical
-way to get a working JAR job without a multi-hundred-MB download or
-standing up a JVM build toolchain just for a demo.)
+Requires `nyc_taxi.gold_taxi_trip_summary_v1` to already exist — run
+`notebooks/data-generators/bronze_ingest_nyc_taxi.ipynb` and
+`notebooks/data-transformation/gold_taxi_trip_summary_v1.ipynb` first.
 
-`SparkPi` estimates π via Monte Carlo sampling — the classic "does this
-Spark job type even work" smoke test, entirely self-contained (no data
-dependency).
+## Why a thin jar
 
-## Deploying your own JAR instead
+Spark itself stopped publishing `spark-examples` as a standalone Maven
+Central artifact (confirmed: 404 across every version checked) — it only
+ships bundled inside the full multi-hundred-MB Spark binary distribution,
+too heavy to vendor for a demo. Instead: `pom.xml` declares
+`spark-core`/`spark-sql` as `provided` scope (the cluster supplies them at
+`spark-submit` time), so `mvn package` produces a jar containing only our
+one compiled class — **3.2 KB**.
 
-Same job type, different artifact:
-1. Upload your `.jar` into the workspace (`yeedu workspace
-   create-workspace-file --local_file_path <jar>`) or reference one already
-   on the cluster's filesystem.
-2. Set `job_command` to that file's path (a `file://` URI) and
-   `job_class_name` to your JAR's main class.
-3. `job_arguments` are passed straight through as your `main(String[]
-   args)` arguments.
+Compiled targeting Java 8 bytecode (`maven.compiler.target=1.8`) for
+broad compatibility across likely cluster JVM versions — forward-
+compatible with 11/17 runtimes.
 
-## Version note
+## Rebuilding
 
-The exact vendored filename (`spark-examples_2.12-3.2.2.jar`) is tied to a
-specific Spark/Scala build (Spark 3.2.2, Scala 2.12) — match it to your
-target cluster's `spark_infra_version` (check via `yeedu resource
-list-spark-infra-versions` or the cluster's config) or the JAR class won't
-be found. `automation/deploy_other_jobs.py` exposes this as a parameter
-rather than hardcoding it for that reason.
+```bash
+cd jobs/jar
+mvn package
+cp target/gold-table-summary-job-1.0.jar .
+```
+
+`<spark.version>`/`<scala.binary.version>` in `pom.xml` should match your
+target cluster's `spark_infra_version` closely enough that the Spark APIs
+used (a stable, ancient subset: `SparkSession.builder()`, `.table()`,
+`.count()`, `.show()`) resolve correctly — not version-critical since
+`provided` scope means only compile-time API surface matters, not runtime
+bytecode compatibility with the cluster's actual Spark jars.
+
+## Status
+
+Config creation confirmed live (`job create` accepted this shape).
+Execution is still unverified — needs a cluster (see
+`automation/README.md` "Known gaps").

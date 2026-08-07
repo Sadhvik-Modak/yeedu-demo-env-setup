@@ -3,8 +3,13 @@ JAR/Python/Spark SQL). Companion to deploy_functions.py (job_type
 Functions).
 
 CONFIRMED LIVE (2026-08-07): `job_type: JAR` and `job_type: Python` both
-use `job_command` = path to the entrypoint (jar/py). `job_type: Spark SQL`
-does NOT — it rejects `job_command` and instead requires
+use `job_command` = workspace path to the entrypoint (jar/py) — same
+`{REPO_WORKSPACE_PATH}/...` convention as everything else cloned into the
+workspace by clone_repo.py, no `file://` scheme needed (that scheme was
+only for Yeedu's own internal filesystem paths, e.g. its vendored
+spark-examples jar — not used here since the JAR is committed to this repo
+and cloned in like everything else, per user request). `job_type: Spark
+SQL` does NOT use `job_command` — it rejects it and instead requires
 `--job-raw-scala-code` (confusingly named for a SQL job) set to a **local
 filesystem path** (read client-side by the `yeedu` CLI itself, NOT a
 workspace path and NOT the SQL text inline — confirmed via two rejections:
@@ -18,19 +23,15 @@ import os
 from clone_repo import REPO_WORKSPACE_PATH
 from yeedu_client import find_exact_match, get_field, run_allow_not_found
 
-# From Yeedu's own OpenAPI spec example (AddSparkJobConfig) — vendored
-# internally by the platform, tied to Spark 3.2.2 / Scala 2.12. Override
-# via --spark-examples-jar if your target cluster runs a different
-# spark_infra_version.
-DEFAULT_SPARK_EXAMPLES_JAR = "file:///yeedu/object-storage-manager/spark-examples_2.12-3.2.2.jar"
 DEFAULT_TABLE = "nyc_taxi.gold_taxi_trip_summary_v1"
 
 JOB_DEMOS = [
     {
-        "job_name": "jar_spark_pi",
+        "job_name": "jar_gold_table_summary",
         "job_type": "JAR",
-        "job_class_name": "org.apache.spark.examples.SparkPi",
-        "job_arguments": "1000",
+        "job_command_rel_path": "jobs/jar/gold-table-summary-job-1.0.jar",
+        "job_class_name": "io.yeedu.demo.GoldTableSummaryJob",
+        "job_arguments": DEFAULT_TABLE,
     },
     {
         "job_name": "python_gold_table_summary",
@@ -54,8 +55,7 @@ def _find_job_id(client, workspace_id, job_name):
     return match.get("job_id") if match else None
 
 
-def deploy_all(client, repo_root, workspace_id, cluster_id=None, start=False, spark_examples_jar=None):
-    spark_examples_jar = spark_examples_jar or DEFAULT_SPARK_EXAMPLES_JAR
+def deploy_all(client, repo_root, workspace_id, cluster_id=None, start=False):
     created = []
     for demo in JOB_DEMOS:
         job_name = demo["job_name"]
@@ -72,9 +72,7 @@ def deploy_all(client, repo_root, workspace_id, cluster_id=None, start=False, sp
                 "--name", job_name,
                 "--job-type", demo["job_type"],
             ]
-            if demo["job_type"] == "JAR":
-                args += ["--job-command", spark_examples_jar]
-            elif demo["job_type"] == "Spark SQL":
+            if demo["job_type"] == "Spark SQL":
                 # --job-raw-scala-code takes a LOCAL file path, read
                 # client-side by the CLI itself — confirmed live (see
                 # module docstring). Not a workspace path, not inline text.

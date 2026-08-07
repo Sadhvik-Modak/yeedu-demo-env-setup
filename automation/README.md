@@ -32,7 +32,6 @@ python3 automation/provision.py \
   [--workspace-name <name>] \
   [--cluster-id <cluster_id>] \
   [--git-branch main] \
-  [--spark-examples-jar <file:// path>] \
   [--start] \
   [--skip-notebook-confirm] \
   [--insecure] \
@@ -51,10 +50,6 @@ injection — use this if you don't have a fresh token handy).
 - `--cluster-id` is optional. Without it, jobs/notebooks are created but
   **not** started (a cluster is required to actually run anything) —
   matches "run isn't mandatory this pass."
-- `--spark-examples-jar` overrides the `file://` path to Yeedu's vendored
-  `spark-examples` jar used by the `jar_spark_pi` demo (default targets
-  Spark 3.2.2/Scala 2.12 — override if your target cluster runs a
-  different `spark_infra_version`).
 - `--start` additionally starts each Functions/JAR/Python/SQL job after
   creating it (requires `--cluster-id`; ignored otherwise, with a
   warning). Notebooks are never auto-started by this script — start them
@@ -128,11 +123,17 @@ remaining job types beyond Functions) and confirmed their `job create`
 payload shapes live:
 
 - `job_type: JAR` — CLI enum value is `JAR` (all caps), not `Jar` as shown
-  in Yeedu's own OpenAPI example. `job_command` = a `file://` path (Yeedu
-  vendors `spark-examples_2.12-3.2.2.jar` internally at
-  `file:///yeedu/object-storage-manager/...` — no custom build needed) +
-  `job_class_name` + `job_arguments`. Confirmed: `job create` succeeded
-  (`job_id` 4236).
+  in Yeedu's own OpenAPI example. `job_command` = workspace path to the
+  jar + `job_class_name` + `job_arguments`. First tested by pointing at
+  Yeedu's internally-vendored `spark-examples_2.12-3.2.2.jar` (`job_id`
+  4236, `file:///yeedu/object-storage-manager/...`) — confirmed working,
+  but then **switched to committing our own thin jar into the repo
+  instead** (`jobs/jar/gold-table-summary-job-1.0.jar`, 3.2 KB, `provided`
+  Spark deps) so the JAR demo follows the same "cloned in like everything
+  else" pattern as Python/SQL/notebooks, rather than depending on
+  whatever a given Yeedu instance happens to have vendored internally.
+  Re-confirmed working with the new path/class
+  (`io.yeedu.demo.GoldTableSummaryJob`, `job_id` 4262 on workspace 958).
 - `job_type: Python` — same shape as JAR: `job_command` = workspace path
   to the `.py` file, `job_arguments` = CLI args. Confirmed (`job_id` 4237).
 - `job_type: Spark SQL` — **different from both**: rejects `job_command`

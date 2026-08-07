@@ -44,16 +44,6 @@ def parse_args():
     )
     parser.add_argument("--git-branch", default="main")
     parser.add_argument(
-        "--spark-examples-jar", default=None,
-        help=(
-            "file:// path to Yeedu's vendored spark-examples jar for the "
-            "jar_spark_pi demo (default: "
-            f"{deploy_other_jobs.DEFAULT_SPARK_EXAMPLES_JAR!r}, Spark 3.2.2/"
-            "Scala 2.12 — override if your target cluster runs a different "
-            "spark_infra_version)."
-        ),
-    )
-    parser.add_argument(
         "--start", action="store_true",
         help="Start Functions jobs after creating them (requires --cluster-id).",
     )
@@ -118,11 +108,10 @@ def main():
         cluster_id=args.cluster_id, start=args.start,
     )
 
-    print("\n== Step 5/6: Other job types (Jar / Python3 / SQL) ==")
+    print("\n== Step 5/6: Other job types (JAR / Python / SQL) ==")
     other_jobs = deploy_other_jobs.deploy_all(
         client, repo_root, workspace_id,
         cluster_id=args.cluster_id, start=args.start,
-        spark_examples_jar=args.spark_examples_jar,
     )
 
     print("\n== Step 6/6: Notebooks ==")
