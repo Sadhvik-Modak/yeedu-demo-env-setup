@@ -42,9 +42,9 @@ Two-stage, per industry:
   `%%sql` cells instead of the DataFrame API, for demos that want to show
   Yeedu's SQL notebook experience.
 - **[`visualization/`](visualization/)** — chart notebooks, using
-  [Plotly](https://plotly.com/python/) (interactive, polished defaults,
-  built-in maps, no extra Jupyter widget extensions needed). See its own
-  section below.
+  Matplotlib/Seaborn (static image output — avoids the large-payload
+  kernel-message issues interactive JS-based charting libraries can hit
+  over a remote/proxied Jupyter connection). See its own section below.
 
 Each notebook is self-contained and re-runnable (`CREATE DATABASE IF NOT
 EXISTS` + `mode("overwrite")`), with a config cell at the top so the
@@ -122,15 +122,15 @@ below.
 [`visualization/`](visualization/):
 
 - [`pharmacovigilance_live_monitor.ipynb`](visualization/pharmacovigilance_live_monitor.ipynb)
-  — polls the openFDA adverse-event feed directly (no Spark table needed)
-  on a fixed interval and re-renders a live chart of top reaction signals
-  each time. A genuine live-refresh demo, not a canned animation.
+  — pulls the openFDA adverse-event feed directly (no Spark table needed)
+  and renders a chart of the current top reaction signals. Re-run the
+  last cell any time for a fresh snapshot of the live feed.
 - [`portfolio_summary_dashboard.ipynb`](visualization/portfolio_summary_dashboard.ipynb)
   — one chart per industry's business-metric table, styled consistently
   for a quick "what's in this demo environment" walkthrough across all
   six verticals.
 
-Dependencies: `visualization/requirements.txt` (`plotly`, `pandas`).
+Dependencies: `visualization/requirements.txt` (`matplotlib`, `seaborn`, `pandas`).
 
 ## Adding a new dataset
 
