@@ -39,6 +39,37 @@ still unverified against a live instance, and the "Confirmed live" section
 recording real bugs found and fixed while running this against
 `dev-onprem-008` (2.10.1) — worth reading before trusting any of it blind.
 
+## Running the job-type demos
+
+`automation/deploy_other_jobs.py` (part of `provision.py`'s run) creates
+the 3 `jobs/` demos via `yeedu job create`, using the exact
+`job_class_name`/`job_arguments` values documented in each subfolder's
+README. Pass `--start` (with `--cluster-id`) to also trigger one run
+right after creation; to trigger a run later, use the same mechanism
+directly:
+
+```bash
+yeedu job start --job_id <job_id> --workspace_id <workspace_id>
+```
+
+Each job needs `retail.customer_rfm_segments_v1` to already exist —
+run `notebooks/data-generators/retail_order_ingest.ipynb` and
+`notebooks/data-transformation/customer_rfm_segmentation.ipynb` first.
+
+**Confirmed live** (checked `/yeedu/reactors/logs/` on a running
+cluster): the SQL job (`table_summary.sql`) ran successfully. The JAR
+and Python jobs failed on real, easy-to-hit config mistakes — check
+these before re-running either:
+- **JAR job**: fails with `Error: Failed to load class TableSummaryJob.`
+  if `job_class_name` is the bare class name instead of the
+  fully-qualified `io.yeedu.demo.TableSummaryJob` (see
+  `jobs/jar/README.md`).
+- **Python job**: fails with the script's own
+  `Usage: table_summary_job.py <database.table>` message and exits
+  (`sys.exit(1)`) if `job_arguments` is empty — it must be set to a
+  real `database.table`, e.g. `retail.customer_rfm_segments_v1` (see
+  `jobs/python/README.md`).
+
 ## Adding a new demo
 
 Each folder documents its own pattern for adding one more:
