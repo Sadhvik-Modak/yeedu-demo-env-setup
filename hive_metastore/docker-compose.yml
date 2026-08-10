@@ -92,7 +92,7 @@ services:
     volumes:
       - ./conf:/hive_custom_conf:ro
     ports:
-      - "10000:10000"
+      - "10001:10000"
       - "10002:10002"
 
 volumes:
