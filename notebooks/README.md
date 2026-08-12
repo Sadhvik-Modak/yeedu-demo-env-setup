@@ -4,7 +4,7 @@ Notebooks that stock a Yeedu workspace with real Spark tables so demos
 (dashboards, jobs, Functions) always have data to point at, instead of
 needing ad-hoc setup each time.
 
-Six industry verticals — the ones Yeedu's actual customers are in — each
+Seven industry verticals — the ones Yeedu's actual customers are in — each
 with a real public dataset and a storyline with genuine business value,
 not a generic public dataset picked for convenience:
 
@@ -16,6 +16,7 @@ not a generic public dataset picked for convenience:
 | Agriculture | USDA NASS crop census | Crop yield trend, 2012 → 2017 |
 | Financial Services | Card transaction fraud dataset | Fraud risk by amount/hour |
 | Digital Marketing | Online retail transactions | Customer RFM segmentation |
+| Retail & Supply Chain | TPC-DS benchmark (industry-standard retail data warehouse) | Omnichannel revenue & margin by channel/year |
 
 ## Pattern
 
@@ -117,6 +118,20 @@ below.
   — score each customer on Recency/Frequency/Monetary quintiles, label a
   named segment, into `retail.customer_rfm_segments_v1`.
 
+### Retail & Supply Chain — Omnichannel Revenue
+- Generator: [`data-generators/tpcds_retail_ingest.ipynb`](data-generators/tpcds_retail_ingest.ipynb)
+  — generates a 12-table subset of the TPC-DS industry-standard retail
+  data warehouse benchmark (via DuckDB's `dsdgen`, `sf=1`, no download/
+  auth) and persists it as `commerce.*` (`store_sales`, `catalog_sales`,
+  `web_sales`, `inventory`, `date_dim`, `item`, `promotion`, `store`,
+  `warehouse`, `customer`, `customer_address`, `customer_demographics`).
+- Transformation: [`data-transformation/channel_revenue_summary.ipynb`](data-transformation/channel_revenue_summary.ipynb)
+  (DataFrame API) and its SQL companion
+  [`data-transformation/channel_revenue_summary_sql.ipynb`](data-transformation/channel_revenue_summary_sql.ipynb)
+  — union the three sales channels, join in date/promotion dimensions,
+  and aggregate revenue, profit margin, and promo revenue share by
+  channel and year into `commerce.channel_revenue_summary_v1`.
+
 ## Visualization
 
 [`visualization/`](visualization/):
@@ -128,7 +143,7 @@ below.
 - [`portfolio_summary_dashboard.ipynb`](visualization/portfolio_summary_dashboard.ipynb)
   — one chart per industry's business-metric table, styled consistently
   for a quick "what's in this demo environment" walkthrough across all
-  six verticals.
+  seven verticals.
 
 Dependencies: `visualization/requirements.txt` (`matplotlib`, `seaborn`, `pandas`).
 
