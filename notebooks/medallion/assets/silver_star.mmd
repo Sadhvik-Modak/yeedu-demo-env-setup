@@ -1,0 +1,19 @@
+flowchart TB
+  DD["dim_date<br/>73,049"] --- F
+  DI["dim_item<br/>102,000 · SCD-2"] --- F
+  DC["dim_customer<br/>500,000"] --- F
+  DA["dim_address<br/>250,000"] --- F
+  F(["<b>fct_sales</b><br/>2,399,460 rows<br/>store · catalog · web<br/>at one grain"])
+  F --- DS["dim_store<br/>102"]
+  F --- DW["dim_web_site<br/>42"]
+  F --- DP["dim_promotion<br/>500"]
+  F --- DM["dim_ship_mode<br/>20"]
+  style F fill:#f5df8e,stroke:#a8901c,stroke-width:3px,color:#111
+  style DD fill:#d8dee4,stroke:#6b7a89,color:#111
+  style DI fill:#d8dee4,stroke:#6b7a89,color:#111
+  style DC fill:#d8dee4,stroke:#6b7a89,color:#111
+  style DA fill:#d8dee4,stroke:#6b7a89,color:#111
+  style DS fill:#d8dee4,stroke:#6b7a89,color:#111
+  style DW fill:#d8dee4,stroke:#6b7a89,color:#111
+  style DP fill:#d8dee4,stroke:#6b7a89,color:#111
+  style DM fill:#d8dee4,stroke:#6b7a89,color:#111

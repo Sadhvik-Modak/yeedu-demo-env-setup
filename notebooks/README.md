@@ -118,6 +118,20 @@ below.
   — score each customer on Recency/Frequency/Monetary quintiles, label a
   named segment, into `retail.customer_rfm_segments_v1`.
 
+## Medallion architecture — [`medallion/`](medallion/)
+
+A separate, larger demo that does not follow the two-stage pattern above: a
+full **bronze → silver → gold** lakehouse build on TPC-DS SF10 retail data,
+55 Hive tables in all, with data quality quarantines, SCD-2 history, CDC
+replay dedup and lineage threaded through every layer by batch id. Five
+notebooks, run in order; **`00_bronze_generate_and_land` is the one that
+generates the data** — it runs DuckDB's TPC-DS `dsdgen` in-cluster, so there
+is nothing to download and no S3 credentials needed.
+
+Sources live in [`medallion/src/`](medallion/src/) as `# %%`-delimited Python
+and are compiled to notebooks by `build.py`; see
+[`medallion/README.md`](medallion/README.md) for the full story, the cluster
+constraints it was tuned against, and the notebook ids on the demo tenant.
 ### Retail & Supply Chain — Omnichannel Revenue
 - Generator: [`data-generators/tpcds_retail_ingest.ipynb`](data-generators/tpcds_retail_ingest.ipynb)
   — generates a 12-table subset of the TPC-DS industry-standard retail
