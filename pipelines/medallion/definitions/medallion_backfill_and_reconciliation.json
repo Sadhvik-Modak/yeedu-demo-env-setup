@@ -1,0 +1,1875 @@
+{
+  "name": "medallion_backfill_and_reconciliation",
+  "description": "Backfill and reconciliation control pipeline. Switch-case routes between a full reload, a six-slice delta replay and a repair-only path, re-runs the core medallion pipeline as a nested job, then drives an 8-domain x 3-control reconciliation matrix with per-domain gates, regional variance analysis, a tolerance gate and a seven-step close-out. 100 tasks.",
+  "schedule_cron": "0 5 * * 0",
+  "max_active_runs": 1,
+  "tags": [
+    "medallion",
+    "banking",
+    "demo",
+    "backfill",
+    "reconciliation",
+    "large-dag"
+  ],
+  "params": {
+    "run_date": "2026-09-03",
+    "backfill_mode": "delta_replay",
+    "backfill_start": "2026-08-25",
+    "backfill_end": "2026-08-30",
+    "variance_tolerance": "0.5",
+    "recon_domains": "[\"accounts\", \"transactions\", \"cards\", \"loans\", \"deposits\", \"forex\", \"atm\", \"digital\"]",
+    "recon_tables": "[\"banking_silver.accounts_clean\", \"banking_silver.transactions_clean\", \"banking_silver.cards_clean\", \"banking_silver.loans_clean\", \"banking_silver.deposits_clean\", \"banking_silver.forex_clean\", \"banking_silver.atm_clean\", \"banking_silver.digital_clean\"]"
+  },
+  "tasks": [
+    {
+      "task_key": "backfill_setup",
+      "__notebook__": "00_setup_environment",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "resolve_backfill_window",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "backfill_setup"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "WINDOW_START": "{{ job.parameters.backfill_start }}",
+        "WINDOW_END": "{{ job.parameters.backfill_end }}"
+      }
+    },
+    {
+      "task_key": "choose_backfill_mode",
+      "depends_on": [
+        {
+          "task_key": "resolve_backfill_window"
+        }
+      ],
+      "switch_case_task": {
+        "expr": "{{ job.parameters.backfill_mode }}",
+        "cases": [
+          "full_reload",
+          "delta_replay",
+          "repair_only"
+        ]
+      }
+    },
+    {
+      "task_key": "full_truncate_bronze",
+      "__notebook__": "10_quarantine_bad_records",
+      "depends_on": [
+        {
+          "task_key": "choose_backfill_mode",
+          "outcome": "full_reload"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "full_reload_bronze",
+      "__notebook__": "02_ingest_bronze_transactions",
+      "depends_on": [
+        {
+          "task_key": "full_truncate_bronze"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "LOAD_STRATEGY": "FULL_REFRESH"
+      }
+    },
+    {
+      "task_key": "full_rebuild_silver",
+      "__notebook__": "05_build_silver_txn_clean",
+      "depends_on": [
+        {
+          "task_key": "full_reload_bronze"
+        }
+      ],
+      "task_cluster_id": 978,
+      "retries": 2,
+      "retry_delay": 120000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "LOAD_STRATEGY": "FULL_REFRESH"
+      }
+    },
+    {
+      "task_key": "full_rebuild_gold",
+      "__notebook__": "07_gold_account_balance_daily",
+      "depends_on": [
+        {
+          "task_key": "full_rebuild_silver"
+        }
+      ],
+      "task_cluster_id": 978,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "LOAD_STRATEGY": "FULL_REFRESH"
+      }
+    },
+    {
+      "task_key": "replay_2026_08_25",
+      "__notebook__": "02_ingest_bronze_transactions",
+      "depends_on": [
+        {
+          "task_key": "choose_backfill_mode",
+          "outcome": "delta_replay"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SLICE_DATE": "2026-08-25"
+      }
+    },
+    {
+      "task_key": "verify_2026_08_25",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "replay_2026_08_25"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SLICE_DATE": "2026-08-25"
+      }
+    },
+    {
+      "task_key": "replay_2026_08_26",
+      "__notebook__": "02_ingest_bronze_transactions",
+      "depends_on": [
+        {
+          "task_key": "choose_backfill_mode",
+          "outcome": "delta_replay"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SLICE_DATE": "2026-08-26"
+      }
+    },
+    {
+      "task_key": "verify_2026_08_26",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "replay_2026_08_26"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SLICE_DATE": "2026-08-26"
+      }
+    },
+    {
+      "task_key": "replay_2026_08_27",
+      "__notebook__": "02_ingest_bronze_transactions",
+      "depends_on": [
+        {
+          "task_key": "choose_backfill_mode",
+          "outcome": "delta_replay"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SLICE_DATE": "2026-08-27"
+      }
+    },
+    {
+      "task_key": "verify_2026_08_27",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "replay_2026_08_27"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SLICE_DATE": "2026-08-27"
+      }
+    },
+    {
+      "task_key": "replay_2026_08_28",
+      "__notebook__": "02_ingest_bronze_transactions",
+      "depends_on": [
+        {
+          "task_key": "choose_backfill_mode",
+          "outcome": "delta_replay"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SLICE_DATE": "2026-08-28"
+      }
+    },
+    {
+      "task_key": "verify_2026_08_28",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "replay_2026_08_28"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SLICE_DATE": "2026-08-28"
+      }
+    },
+    {
+      "task_key": "replay_2026_08_29",
+      "__notebook__": "02_ingest_bronze_transactions",
+      "depends_on": [
+        {
+          "task_key": "choose_backfill_mode",
+          "outcome": "delta_replay"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SLICE_DATE": "2026-08-29"
+      }
+    },
+    {
+      "task_key": "verify_2026_08_29",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "replay_2026_08_29"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SLICE_DATE": "2026-08-29"
+      }
+    },
+    {
+      "task_key": "replay_2026_08_30",
+      "__notebook__": "02_ingest_bronze_transactions",
+      "depends_on": [
+        {
+          "task_key": "choose_backfill_mode",
+          "outcome": "delta_replay"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SLICE_DATE": "2026-08-30"
+      }
+    },
+    {
+      "task_key": "verify_2026_08_30",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "replay_2026_08_30"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SLICE_DATE": "2026-08-30"
+      }
+    },
+    {
+      "task_key": "merge_delta_batches",
+      "__notebook__": "05_build_silver_txn_clean",
+      "depends_on": [
+        {
+          "task_key": "verify_2026_08_25"
+        },
+        {
+          "task_key": "verify_2026_08_26"
+        },
+        {
+          "task_key": "verify_2026_08_27"
+        },
+        {
+          "task_key": "verify_2026_08_28"
+        },
+        {
+          "task_key": "verify_2026_08_29"
+        },
+        {
+          "task_key": "verify_2026_08_30"
+        }
+      ],
+      "run_if": "None Failed",
+      "task_cluster_id": 978,
+      "retries": 2,
+      "retry_delay": 120000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "repair_scan",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "choose_backfill_mode",
+          "outcome": "repair_only"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "repair_apply",
+      "__notebook__": "10_quarantine_bad_records",
+      "depends_on": [
+        {
+          "task_key": "repair_scan"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "repair_verify",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "repair_apply"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "backfill_converge",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "full_rebuild_gold"
+        },
+        {
+          "task_key": "merge_delta_batches"
+        },
+        {
+          "task_key": "repair_verify"
+        }
+      ],
+      "run_if": "At Least One Succeeded",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "rerun_core_medallion",
+      "depends_on": [
+        {
+          "task_key": "backfill_converge"
+        }
+      ],
+      "parameters": {
+        "run_date": "{{ job.parameters.run_date }}",
+        "load_strategy": "BACKFILL"
+      },
+      "run_job_task": {
+        "__pipeline__": "medallion_banking_pipeline"
+      }
+    },
+    {
+      "task_key": "post_backfill_settle",
+      "depends_on": [
+        {
+          "task_key": "rerun_core_medallion"
+        }
+      ],
+      "run_if": "All Done",
+      "sleep_task": {
+        "seconds": 20
+      }
+    },
+    {
+      "task_key": "recon_rowcount_accounts",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "accounts",
+        "CONTROL": "ROW_COUNT"
+      }
+    },
+    {
+      "task_key": "recon_sum_accounts",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "accounts",
+        "CONTROL": "SUM_AMOUNT"
+      }
+    },
+    {
+      "task_key": "recon_checksum_accounts",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "accounts",
+        "CONTROL": "CHECKSUM",
+        "TARGET_TABLE": "banking_silver.accounts_clean"
+      }
+    },
+    {
+      "task_key": "recon_gate_accounts",
+      "depends_on": [
+        {
+          "task_key": "recon_rowcount_accounts"
+        },
+        {
+          "task_key": "recon_sum_accounts"
+        },
+        {
+          "task_key": "recon_checksum_accounts"
+        }
+      ],
+      "run_if": "All Done",
+      "condition_task": {
+        "op": "EQUAL_TO",
+        "left": "{{ tasks.recon_rowcount_accounts.values.dq_status }}",
+        "right": "PASS"
+      }
+    },
+    {
+      "task_key": "recon_repair_accounts",
+      "__notebook__": "10_quarantine_bad_records",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_accounts",
+          "outcome": "false"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "accounts"
+      }
+    },
+    {
+      "task_key": "recon_signoff_accounts",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_accounts",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 0,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "accounts"
+      }
+    },
+    {
+      "task_key": "recon_rowcount_transactions",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "transactions",
+        "CONTROL": "ROW_COUNT"
+      }
+    },
+    {
+      "task_key": "recon_sum_transactions",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "transactions",
+        "CONTROL": "SUM_AMOUNT"
+      }
+    },
+    {
+      "task_key": "recon_checksum_transactions",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "transactions",
+        "CONTROL": "CHECKSUM",
+        "TARGET_TABLE": "banking_silver.transactions_clean"
+      }
+    },
+    {
+      "task_key": "recon_gate_transactions",
+      "depends_on": [
+        {
+          "task_key": "recon_rowcount_transactions"
+        },
+        {
+          "task_key": "recon_sum_transactions"
+        },
+        {
+          "task_key": "recon_checksum_transactions"
+        }
+      ],
+      "run_if": "All Done",
+      "condition_task": {
+        "op": "EQUAL_TO",
+        "left": "{{ tasks.recon_rowcount_transactions.values.dq_status }}",
+        "right": "PASS"
+      }
+    },
+    {
+      "task_key": "recon_repair_transactions",
+      "__notebook__": "10_quarantine_bad_records",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_transactions",
+          "outcome": "false"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "transactions"
+      }
+    },
+    {
+      "task_key": "recon_signoff_transactions",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_transactions",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 0,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "transactions"
+      }
+    },
+    {
+      "task_key": "recon_rowcount_cards",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "cards",
+        "CONTROL": "ROW_COUNT"
+      }
+    },
+    {
+      "task_key": "recon_sum_cards",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "cards",
+        "CONTROL": "SUM_AMOUNT"
+      }
+    },
+    {
+      "task_key": "recon_checksum_cards",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "cards",
+        "CONTROL": "CHECKSUM",
+        "TARGET_TABLE": "banking_silver.cards_clean"
+      }
+    },
+    {
+      "task_key": "recon_gate_cards",
+      "depends_on": [
+        {
+          "task_key": "recon_rowcount_cards"
+        },
+        {
+          "task_key": "recon_sum_cards"
+        },
+        {
+          "task_key": "recon_checksum_cards"
+        }
+      ],
+      "run_if": "All Done",
+      "condition_task": {
+        "op": "EQUAL_TO",
+        "left": "{{ tasks.recon_rowcount_cards.values.dq_status }}",
+        "right": "PASS"
+      }
+    },
+    {
+      "task_key": "recon_repair_cards",
+      "__notebook__": "10_quarantine_bad_records",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_cards",
+          "outcome": "false"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "cards"
+      }
+    },
+    {
+      "task_key": "recon_signoff_cards",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_cards",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 0,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "cards"
+      }
+    },
+    {
+      "task_key": "recon_rowcount_loans",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "loans",
+        "CONTROL": "ROW_COUNT"
+      }
+    },
+    {
+      "task_key": "recon_sum_loans",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "loans",
+        "CONTROL": "SUM_AMOUNT"
+      }
+    },
+    {
+      "task_key": "recon_checksum_loans",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "loans",
+        "CONTROL": "CHECKSUM",
+        "TARGET_TABLE": "banking_silver.loans_clean"
+      }
+    },
+    {
+      "task_key": "recon_gate_loans",
+      "depends_on": [
+        {
+          "task_key": "recon_rowcount_loans"
+        },
+        {
+          "task_key": "recon_sum_loans"
+        },
+        {
+          "task_key": "recon_checksum_loans"
+        }
+      ],
+      "run_if": "All Done",
+      "condition_task": {
+        "op": "EQUAL_TO",
+        "left": "{{ tasks.recon_rowcount_loans.values.dq_status }}",
+        "right": "PASS"
+      }
+    },
+    {
+      "task_key": "recon_repair_loans",
+      "__notebook__": "10_quarantine_bad_records",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_loans",
+          "outcome": "false"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "loans"
+      }
+    },
+    {
+      "task_key": "recon_signoff_loans",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_loans",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 0,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "loans"
+      }
+    },
+    {
+      "task_key": "recon_rowcount_deposits",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "deposits",
+        "CONTROL": "ROW_COUNT"
+      }
+    },
+    {
+      "task_key": "recon_sum_deposits",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "deposits",
+        "CONTROL": "SUM_AMOUNT"
+      }
+    },
+    {
+      "task_key": "recon_checksum_deposits",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "deposits",
+        "CONTROL": "CHECKSUM",
+        "TARGET_TABLE": "banking_silver.deposits_clean"
+      }
+    },
+    {
+      "task_key": "recon_gate_deposits",
+      "depends_on": [
+        {
+          "task_key": "recon_rowcount_deposits"
+        },
+        {
+          "task_key": "recon_sum_deposits"
+        },
+        {
+          "task_key": "recon_checksum_deposits"
+        }
+      ],
+      "run_if": "All Done",
+      "condition_task": {
+        "op": "EQUAL_TO",
+        "left": "{{ tasks.recon_rowcount_deposits.values.dq_status }}",
+        "right": "PASS"
+      }
+    },
+    {
+      "task_key": "recon_repair_deposits",
+      "__notebook__": "10_quarantine_bad_records",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_deposits",
+          "outcome": "false"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "deposits"
+      }
+    },
+    {
+      "task_key": "recon_signoff_deposits",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_deposits",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 0,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "deposits"
+      }
+    },
+    {
+      "task_key": "recon_rowcount_forex",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "forex",
+        "CONTROL": "ROW_COUNT"
+      }
+    },
+    {
+      "task_key": "recon_sum_forex",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "forex",
+        "CONTROL": "SUM_AMOUNT"
+      }
+    },
+    {
+      "task_key": "recon_checksum_forex",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "forex",
+        "CONTROL": "CHECKSUM",
+        "TARGET_TABLE": "banking_silver.forex_clean"
+      }
+    },
+    {
+      "task_key": "recon_gate_forex",
+      "depends_on": [
+        {
+          "task_key": "recon_rowcount_forex"
+        },
+        {
+          "task_key": "recon_sum_forex"
+        },
+        {
+          "task_key": "recon_checksum_forex"
+        }
+      ],
+      "run_if": "All Done",
+      "condition_task": {
+        "op": "EQUAL_TO",
+        "left": "{{ tasks.recon_rowcount_forex.values.dq_status }}",
+        "right": "PASS"
+      }
+    },
+    {
+      "task_key": "recon_repair_forex",
+      "__notebook__": "10_quarantine_bad_records",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_forex",
+          "outcome": "false"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "forex"
+      }
+    },
+    {
+      "task_key": "recon_signoff_forex",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_forex",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 0,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "forex"
+      }
+    },
+    {
+      "task_key": "recon_rowcount_atm",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "atm",
+        "CONTROL": "ROW_COUNT"
+      }
+    },
+    {
+      "task_key": "recon_sum_atm",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "atm",
+        "CONTROL": "SUM_AMOUNT"
+      }
+    },
+    {
+      "task_key": "recon_checksum_atm",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "atm",
+        "CONTROL": "CHECKSUM",
+        "TARGET_TABLE": "banking_silver.atm_clean"
+      }
+    },
+    {
+      "task_key": "recon_gate_atm",
+      "depends_on": [
+        {
+          "task_key": "recon_rowcount_atm"
+        },
+        {
+          "task_key": "recon_sum_atm"
+        },
+        {
+          "task_key": "recon_checksum_atm"
+        }
+      ],
+      "run_if": "All Done",
+      "condition_task": {
+        "op": "EQUAL_TO",
+        "left": "{{ tasks.recon_rowcount_atm.values.dq_status }}",
+        "right": "PASS"
+      }
+    },
+    {
+      "task_key": "recon_repair_atm",
+      "__notebook__": "10_quarantine_bad_records",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_atm",
+          "outcome": "false"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "atm"
+      }
+    },
+    {
+      "task_key": "recon_signoff_atm",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_atm",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 0,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "atm"
+      }
+    },
+    {
+      "task_key": "recon_rowcount_digital",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "digital",
+        "CONTROL": "ROW_COUNT"
+      }
+    },
+    {
+      "task_key": "recon_sum_digital",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "digital",
+        "CONTROL": "SUM_AMOUNT"
+      }
+    },
+    {
+      "task_key": "recon_checksum_digital",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "post_backfill_settle"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "digital",
+        "CONTROL": "CHECKSUM",
+        "TARGET_TABLE": "banking_silver.digital_clean"
+      }
+    },
+    {
+      "task_key": "recon_gate_digital",
+      "depends_on": [
+        {
+          "task_key": "recon_rowcount_digital"
+        },
+        {
+          "task_key": "recon_sum_digital"
+        },
+        {
+          "task_key": "recon_checksum_digital"
+        }
+      ],
+      "run_if": "All Done",
+      "condition_task": {
+        "op": "EQUAL_TO",
+        "left": "{{ tasks.recon_rowcount_digital.values.dq_status }}",
+        "right": "PASS"
+      }
+    },
+    {
+      "task_key": "recon_repair_digital",
+      "__notebook__": "10_quarantine_bad_records",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_digital",
+          "outcome": "false"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "digital"
+      }
+    },
+    {
+      "task_key": "recon_signoff_digital",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "recon_gate_digital",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 0,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DOMAIN": "digital"
+      }
+    },
+    {
+      "task_key": "recon_region_apac",
+      "__notebook__": "08_gold_fraud_signal_summary",
+      "depends_on": [
+        {
+          "task_key": "recon_signoff_accounts"
+        },
+        {
+          "task_key": "recon_signoff_transactions"
+        },
+        {
+          "task_key": "recon_signoff_cards"
+        },
+        {
+          "task_key": "recon_signoff_loans"
+        },
+        {
+          "task_key": "recon_signoff_deposits"
+        },
+        {
+          "task_key": "recon_signoff_forex"
+        },
+        {
+          "task_key": "recon_signoff_atm"
+        },
+        {
+          "task_key": "recon_signoff_digital"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "REGION": "apac"
+      }
+    },
+    {
+      "task_key": "region_variance_apac",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "recon_region_apac"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "REGION": "apac"
+      }
+    },
+    {
+      "task_key": "recon_region_emea",
+      "__notebook__": "08_gold_fraud_signal_summary",
+      "depends_on": [
+        {
+          "task_key": "recon_signoff_accounts"
+        },
+        {
+          "task_key": "recon_signoff_transactions"
+        },
+        {
+          "task_key": "recon_signoff_cards"
+        },
+        {
+          "task_key": "recon_signoff_loans"
+        },
+        {
+          "task_key": "recon_signoff_deposits"
+        },
+        {
+          "task_key": "recon_signoff_forex"
+        },
+        {
+          "task_key": "recon_signoff_atm"
+        },
+        {
+          "task_key": "recon_signoff_digital"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "REGION": "emea"
+      }
+    },
+    {
+      "task_key": "region_variance_emea",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "recon_region_emea"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "REGION": "emea"
+      }
+    },
+    {
+      "task_key": "recon_region_amer",
+      "__notebook__": "08_gold_fraud_signal_summary",
+      "depends_on": [
+        {
+          "task_key": "recon_signoff_accounts"
+        },
+        {
+          "task_key": "recon_signoff_transactions"
+        },
+        {
+          "task_key": "recon_signoff_cards"
+        },
+        {
+          "task_key": "recon_signoff_loans"
+        },
+        {
+          "task_key": "recon_signoff_deposits"
+        },
+        {
+          "task_key": "recon_signoff_forex"
+        },
+        {
+          "task_key": "recon_signoff_atm"
+        },
+        {
+          "task_key": "recon_signoff_digital"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "REGION": "amer"
+      }
+    },
+    {
+      "task_key": "region_variance_amer",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "recon_region_amer"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "REGION": "amer"
+      }
+    },
+    {
+      "task_key": "recon_region_latam",
+      "__notebook__": "08_gold_fraud_signal_summary",
+      "depends_on": [
+        {
+          "task_key": "recon_signoff_accounts"
+        },
+        {
+          "task_key": "recon_signoff_transactions"
+        },
+        {
+          "task_key": "recon_signoff_cards"
+        },
+        {
+          "task_key": "recon_signoff_loans"
+        },
+        {
+          "task_key": "recon_signoff_deposits"
+        },
+        {
+          "task_key": "recon_signoff_forex"
+        },
+        {
+          "task_key": "recon_signoff_atm"
+        },
+        {
+          "task_key": "recon_signoff_digital"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "REGION": "latam"
+      }
+    },
+    {
+      "task_key": "region_variance_latam",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "recon_region_latam"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "REGION": "latam"
+      }
+    },
+    {
+      "task_key": "variance_rollup",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "region_variance_apac"
+        },
+        {
+          "task_key": "region_variance_emea"
+        },
+        {
+          "task_key": "region_variance_amer"
+        },
+        {
+          "task_key": "region_variance_latam"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "variance_gate",
+      "depends_on": [
+        {
+          "task_key": "variance_rollup"
+        }
+      ],
+      "condition_task": {
+        "op": "LESS_THAN_OR_EQUAL",
+        "left": "{{ tasks.variance_rollup.values.variance_pct }}",
+        "right": "{{ job.parameters.variance_tolerance }}"
+      }
+    },
+    {
+      "task_key": "variance_escalate",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "variance_gate",
+          "outcome": "false"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 0,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "NOTIFY_ONLY": "true",
+        "SEVERITY": "HIGH"
+      }
+    },
+    {
+      "task_key": "variance_accept",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "variance_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 0,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "collect_recon_stats",
+      "depends_on": [
+        {
+          "task_key": "variance_accept"
+        },
+        {
+          "task_key": "variance_escalate"
+        }
+      ],
+      "run_if": "All Done",
+      "for_each_task": {
+        "inputs": "{{ job.parameters.recon_tables }}",
+        "concurrency": 4,
+        "run_if": "All Done",
+        "task": {
+          "task_key": "profile_recon_table",
+          "__notebook__": "11_table_stats",
+          "task_cluster_id": 979,
+          "retries": 1,
+          "retry_delay": 30000,
+          "parameters": {
+            "RUN_DATE": "{{ job.parameters.run_date }}",
+            "TARGET_TABLE": "{{ loop_input }}"
+          }
+        }
+      }
+    },
+    {
+      "task_key": "collect_domain_stats",
+      "depends_on": [
+        {
+          "task_key": "variance_accept"
+        },
+        {
+          "task_key": "variance_escalate"
+        }
+      ],
+      "run_if": "All Done",
+      "for_each_task": {
+        "inputs": "{{ job.parameters.recon_domains }}",
+        "concurrency": 4,
+        "run_if": "All Done",
+        "task": {
+          "task_key": "profile_recon_domain",
+          "__notebook__": "11_table_stats",
+          "task_cluster_id": 979,
+          "retries": 1,
+          "retry_delay": 30000,
+          "parameters": {
+            "RUN_DATE": "{{ job.parameters.run_date }}",
+            "DOMAIN": "{{ loop_input }}"
+          }
+        }
+      }
+    },
+    {
+      "task_key": "reconciliation_report",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "collect_recon_stats"
+        },
+        {
+          "task_key": "collect_domain_stats"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "archive_recon_evidence",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "reconciliation_report"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "notify_data_stewards",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "archive_recon_evidence"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 0,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "NOTIFY_ONLY": "true"
+      }
+    },
+    {
+      "task_key": "notify_risk_office",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "archive_recon_evidence"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 0,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "NOTIFY_ONLY": "true"
+      }
+    },
+    {
+      "task_key": "snapshot_control_totals",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "notify_data_stewards"
+        },
+        {
+          "task_key": "notify_risk_office"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "CONTROL_STEP": "snapshot_control_totals"
+      }
+    },
+    {
+      "task_key": "compare_to_source_of_record",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "snapshot_control_totals"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "CONTROL_STEP": "compare_to_source_of_record"
+      }
+    },
+    {
+      "task_key": "detect_late_arriving_facts",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "compare_to_source_of_record"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "CONTROL_STEP": "detect_late_arriving_facts"
+      }
+    },
+    {
+      "task_key": "reprocess_late_facts",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "detect_late_arriving_facts"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "CONTROL_STEP": "reprocess_late_facts"
+      }
+    },
+    {
+      "task_key": "refresh_recon_dashboard",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "reprocess_late_facts"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "CONTROL_STEP": "refresh_recon_dashboard"
+      }
+    },
+    {
+      "task_key": "update_recon_sla",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "refresh_recon_dashboard"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "CONTROL_STEP": "update_recon_sla"
+      }
+    },
+    {
+      "task_key": "close_backfill_window",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "update_recon_sla"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "CONTROL_STEP": "close_backfill_window"
+      }
+    },
+    {
+      "task_key": "final_signoff",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "close_backfill_window"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 0,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    }
+  ]
+}

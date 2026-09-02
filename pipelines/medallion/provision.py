@@ -37,9 +37,13 @@ REMOTE_DIR = "medallion"
 
 # Pipelines are created in this order so that `run_job_task` references to an
 # earlier pipeline can be resolved to a real pipeline id.
+# Order matters: a pipeline that invokes another via run_job_task must be
+# created after the pipeline it calls, so its id can be substituted in.
 PIPELINE_ORDER = [
     "medallion_banking_pipeline.json",
     "medallion_daily_orchestrator.json",
+    "enterprise_banking_medallion_platform.json",
+    "medallion_backfill_and_reconciliation.json",
 ]
 
 

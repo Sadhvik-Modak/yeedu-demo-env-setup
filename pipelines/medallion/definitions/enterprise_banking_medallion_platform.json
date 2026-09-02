@@ -1,0 +1,1958 @@
+{
+  "name": "enterprise_banking_medallion_platform",
+  "description": "Enterprise-scale medallion platform for retail banking: 10 source systems landed and DQ-checked in parallel, a bronze gate, four conformed dimensions, per-domain silver conformance, a silver gate, 12 gold marts fanned out across on-prem and AWS, two for-each profiling loops, housekeeping and an always-runs audit tail. 100 tasks.",
+  "schedule_cron": "0 3 * * *",
+  "max_active_runs": 1,
+  "tags": [
+    "medallion",
+    "banking",
+    "demo",
+    "enterprise",
+    "large-dag"
+  ],
+  "params": {
+    "run_date": "2026-09-03",
+    "dq_threshold": "0.98",
+    "gold_tables": "[\"banking_gold.account_balance_daily\", \"banking_gold.fraud_signal_summary\", \"banking_gold.channel_mix_daily\", \"banking_gold.merchant_spend_monthly\", \"banking_gold.loan_exposure_snapshot\", \"banking_gold.deposit_growth_trend\", \"banking_gold.fx_position_daily\", \"banking_gold.atm_utilisation_daily\", \"banking_gold.customer_360_profile\", \"banking_gold.regulatory_capital_input\", \"banking_gold.card_spend_category\", \"banking_gold.trade_finance_exposure\"]",
+    "silver_tables": "[\"banking_silver.dim_account\", \"banking_silver.dim_customer\", \"banking_silver.dim_merchant\", \"banking_silver.dim_branch\", \"banking_silver.core_banking_clean\", \"banking_silver.payments_switch_clean\", \"banking_silver.cards_authorisation_clean\", \"banking_silver.retail_loans_clean\"]"
+  },
+  "tasks": [
+    {
+      "task_key": "platform_setup",
+      "__notebook__": "00_setup_environment",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DQ_THRESHOLD": "{{ job.parameters.dq_threshold }}"
+      }
+    },
+    {
+      "task_key": "metastore_preflight",
+      "__notebook__": "00_setup_environment",
+      "depends_on": [
+        {
+          "task_key": "platform_setup"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "landing_zone_scan",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "platform_setup"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_bronze.raw_accounts"
+      }
+    },
+    {
+      "task_key": "land_core_banking",
+      "__notebook__": "01_ingest_bronze_accounts",
+      "depends_on": [
+        {
+          "task_key": "metastore_preflight"
+        },
+        {
+          "task_key": "landing_zone_scan"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_SYSTEM": "core-banking-cbs"
+      }
+    },
+    {
+      "task_key": "profile_core_banking",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "land_core_banking"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_bronze.raw_core_banking"
+      }
+    },
+    {
+      "task_key": "dq_bronze_core_banking",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "profile_core_banking"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DQ_THRESHOLD": "{{ job.parameters.dq_threshold }}"
+      }
+    },
+    {
+      "task_key": "land_payments_switch",
+      "__notebook__": "02_ingest_bronze_transactions",
+      "depends_on": [
+        {
+          "task_key": "metastore_preflight"
+        },
+        {
+          "task_key": "landing_zone_scan"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_SYSTEM": "payments-switch"
+      }
+    },
+    {
+      "task_key": "profile_payments_switch",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "land_payments_switch"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_bronze.raw_payments_switch"
+      }
+    },
+    {
+      "task_key": "dq_bronze_payments_switch",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "profile_payments_switch"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DQ_THRESHOLD": "{{ job.parameters.dq_threshold }}"
+      }
+    },
+    {
+      "task_key": "land_cards_authorisation",
+      "__notebook__": "01_ingest_bronze_accounts",
+      "depends_on": [
+        {
+          "task_key": "metastore_preflight"
+        },
+        {
+          "task_key": "landing_zone_scan"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_SYSTEM": "cards-auth-host"
+      }
+    },
+    {
+      "task_key": "profile_cards_authorisation",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "land_cards_authorisation"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_bronze.raw_cards_authorisation"
+      }
+    },
+    {
+      "task_key": "dq_bronze_cards_authorisation",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "profile_cards_authorisation"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DQ_THRESHOLD": "{{ job.parameters.dq_threshold }}"
+      }
+    },
+    {
+      "task_key": "land_retail_loans",
+      "__notebook__": "02_ingest_bronze_transactions",
+      "depends_on": [
+        {
+          "task_key": "metastore_preflight"
+        },
+        {
+          "task_key": "landing_zone_scan"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_SYSTEM": "loan-origination"
+      }
+    },
+    {
+      "task_key": "profile_retail_loans",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "land_retail_loans"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_bronze.raw_retail_loans"
+      }
+    },
+    {
+      "task_key": "dq_bronze_retail_loans",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "profile_retail_loans"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DQ_THRESHOLD": "{{ job.parameters.dq_threshold }}"
+      }
+    },
+    {
+      "task_key": "land_term_deposits",
+      "__notebook__": "01_ingest_bronze_accounts",
+      "depends_on": [
+        {
+          "task_key": "metastore_preflight"
+        },
+        {
+          "task_key": "landing_zone_scan"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_SYSTEM": "deposits-ledger"
+      }
+    },
+    {
+      "task_key": "profile_term_deposits",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "land_term_deposits"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_bronze.raw_term_deposits"
+      }
+    },
+    {
+      "task_key": "dq_bronze_term_deposits",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "profile_term_deposits"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DQ_THRESHOLD": "{{ job.parameters.dq_threshold }}"
+      }
+    },
+    {
+      "task_key": "land_forex_treasury",
+      "__notebook__": "02_ingest_bronze_transactions",
+      "depends_on": [
+        {
+          "task_key": "metastore_preflight"
+        },
+        {
+          "task_key": "landing_zone_scan"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_SYSTEM": "treasury-fx"
+      }
+    },
+    {
+      "task_key": "profile_forex_treasury",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "land_forex_treasury"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_bronze.raw_forex_treasury"
+      }
+    },
+    {
+      "task_key": "dq_bronze_forex_treasury",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "profile_forex_treasury"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DQ_THRESHOLD": "{{ job.parameters.dq_threshold }}"
+      }
+    },
+    {
+      "task_key": "land_atm_network",
+      "__notebook__": "01_ingest_bronze_accounts",
+      "depends_on": [
+        {
+          "task_key": "metastore_preflight"
+        },
+        {
+          "task_key": "landing_zone_scan"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_SYSTEM": "atm-switch"
+      }
+    },
+    {
+      "task_key": "profile_atm_network",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "land_atm_network"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_bronze.raw_atm_network"
+      }
+    },
+    {
+      "task_key": "dq_bronze_atm_network",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "profile_atm_network"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DQ_THRESHOLD": "{{ job.parameters.dq_threshold }}"
+      }
+    },
+    {
+      "task_key": "land_digital_channel",
+      "__notebook__": "02_ingest_bronze_transactions",
+      "depends_on": [
+        {
+          "task_key": "metastore_preflight"
+        },
+        {
+          "task_key": "landing_zone_scan"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_SYSTEM": "mobile-internet-banking"
+      }
+    },
+    {
+      "task_key": "profile_digital_channel",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "land_digital_channel"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_bronze.raw_digital_channel"
+      }
+    },
+    {
+      "task_key": "dq_bronze_digital_channel",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "profile_digital_channel"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DQ_THRESHOLD": "{{ job.parameters.dq_threshold }}"
+      }
+    },
+    {
+      "task_key": "land_wealth_management",
+      "__notebook__": "01_ingest_bronze_accounts",
+      "depends_on": [
+        {
+          "task_key": "metastore_preflight"
+        },
+        {
+          "task_key": "landing_zone_scan"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_SYSTEM": "wealth-portfolio"
+      }
+    },
+    {
+      "task_key": "profile_wealth_management",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "land_wealth_management"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_bronze.raw_wealth_management"
+      }
+    },
+    {
+      "task_key": "dq_bronze_wealth_management",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "profile_wealth_management"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DQ_THRESHOLD": "{{ job.parameters.dq_threshold }}"
+      }
+    },
+    {
+      "task_key": "land_trade_finance",
+      "__notebook__": "02_ingest_bronze_transactions",
+      "depends_on": [
+        {
+          "task_key": "metastore_preflight"
+        },
+        {
+          "task_key": "landing_zone_scan"
+        }
+      ],
+      "task_cluster_id": 977,
+      "cluster_ids": [
+        978
+      ],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_SYSTEM": "trade-finance-hub"
+      }
+    },
+    {
+      "task_key": "profile_trade_finance",
+      "__notebook__": "11_table_stats",
+      "depends_on": [
+        {
+          "task_key": "land_trade_finance"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_bronze.raw_trade_finance"
+      }
+    },
+    {
+      "task_key": "dq_bronze_trade_finance",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "profile_trade_finance"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DQ_THRESHOLD": "{{ job.parameters.dq_threshold }}"
+      }
+    },
+    {
+      "task_key": "bronze_dq_rollup",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        {
+          "task_key": "dq_bronze_core_banking"
+        },
+        {
+          "task_key": "dq_bronze_payments_switch"
+        },
+        {
+          "task_key": "dq_bronze_cards_authorisation"
+        },
+        {
+          "task_key": "dq_bronze_retail_loans"
+        },
+        {
+          "task_key": "dq_bronze_term_deposits"
+        },
+        {
+          "task_key": "dq_bronze_forex_treasury"
+        },
+        {
+          "task_key": "dq_bronze_atm_network"
+        },
+        {
+          "task_key": "dq_bronze_digital_channel"
+        },
+        {
+          "task_key": "dq_bronze_wealth_management"
+        },
+        {
+          "task_key": "dq_bronze_trade_finance"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DQ_THRESHOLD": "{{ job.parameters.dq_threshold }}"
+      }
+    },
+    {
+      "task_key": "bronze_gate",
+      "depends_on": [
+        {
+          "task_key": "bronze_dq_rollup"
+        }
+      ],
+      "condition_task": {
+        "op": "EQUAL_TO",
+        "left": "{{ tasks.bronze_dq_rollup.values.dq_status }}",
+        "right": "PASS"
+      }
+    },
+    {
+      "task_key": "quarantine_bronze",
+      "__notebook__": "10_quarantine_bad_records",
+      "depends_on": [
+        {
+          "task_key": "bronze_gate",
+          "outcome": "false"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "bronze_incident_report",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "quarantine_bronze"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 0,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "NOTIFY_ONLY": "true"
+      }
+    },
+    {
+      "task_key": "silver_dim_account",
+      "__notebook__": "04_build_silver_dim_account",
+      "depends_on": [
+        {
+          "task_key": "bronze_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 978,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DIMENSION": "account"
+      }
+    },
+    {
+      "task_key": "silver_dim_customer",
+      "__notebook__": "04_build_silver_dim_account",
+      "depends_on": [
+        {
+          "task_key": "bronze_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 978,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DIMENSION": "customer"
+      }
+    },
+    {
+      "task_key": "silver_dim_merchant",
+      "__notebook__": "04_build_silver_dim_account",
+      "depends_on": [
+        {
+          "task_key": "bronze_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 978,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DIMENSION": "merchant"
+      }
+    },
+    {
+      "task_key": "silver_dim_branch",
+      "__notebook__": "04_build_silver_dim_account",
+      "depends_on": [
+        {
+          "task_key": "bronze_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 978,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DIMENSION": "branch"
+      }
+    },
+    {
+      "task_key": "silver_conform_core_banking",
+      "__notebook__": "05_build_silver_txn_clean",
+      "depends_on": [
+        {
+          "task_key": "silver_dim_account"
+        },
+        {
+          "task_key": "silver_dim_customer"
+        },
+        {
+          "task_key": "silver_dim_merchant"
+        },
+        {
+          "task_key": "silver_dim_branch"
+        }
+      ],
+      "task_cluster_id": 978,
+      "cluster_ids": [
+        977
+      ],
+      "retries": 2,
+      "retry_delay": 120000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "core_banking"
+      }
+    },
+    {
+      "task_key": "silver_conform_payments_switch",
+      "__notebook__": "05_build_silver_txn_clean",
+      "depends_on": [
+        {
+          "task_key": "silver_dim_account"
+        },
+        {
+          "task_key": "silver_dim_customer"
+        },
+        {
+          "task_key": "silver_dim_merchant"
+        },
+        {
+          "task_key": "silver_dim_branch"
+        }
+      ],
+      "task_cluster_id": 978,
+      "cluster_ids": [
+        977
+      ],
+      "retries": 2,
+      "retry_delay": 120000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "payments_switch"
+      }
+    },
+    {
+      "task_key": "silver_conform_cards_authorisation",
+      "__notebook__": "05_build_silver_txn_clean",
+      "depends_on": [
+        {
+          "task_key": "silver_dim_account"
+        },
+        {
+          "task_key": "silver_dim_customer"
+        },
+        {
+          "task_key": "silver_dim_merchant"
+        },
+        {
+          "task_key": "silver_dim_branch"
+        }
+      ],
+      "task_cluster_id": 978,
+      "cluster_ids": [
+        977
+      ],
+      "retries": 2,
+      "retry_delay": 120000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "cards_authorisation"
+      }
+    },
+    {
+      "task_key": "silver_conform_retail_loans",
+      "__notebook__": "05_build_silver_txn_clean",
+      "depends_on": [
+        {
+          "task_key": "silver_dim_account"
+        },
+        {
+          "task_key": "silver_dim_customer"
+        },
+        {
+          "task_key": "silver_dim_merchant"
+        },
+        {
+          "task_key": "silver_dim_branch"
+        }
+      ],
+      "task_cluster_id": 978,
+      "cluster_ids": [
+        977
+      ],
+      "retries": 2,
+      "retry_delay": 120000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "retail_loans"
+      }
+    },
+    {
+      "task_key": "silver_conform_term_deposits",
+      "__notebook__": "05_build_silver_txn_clean",
+      "depends_on": [
+        {
+          "task_key": "silver_dim_account"
+        },
+        {
+          "task_key": "silver_dim_customer"
+        },
+        {
+          "task_key": "silver_dim_merchant"
+        },
+        {
+          "task_key": "silver_dim_branch"
+        }
+      ],
+      "task_cluster_id": 978,
+      "cluster_ids": [
+        977
+      ],
+      "retries": 2,
+      "retry_delay": 120000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "term_deposits"
+      }
+    },
+    {
+      "task_key": "silver_conform_forex_treasury",
+      "__notebook__": "05_build_silver_txn_clean",
+      "depends_on": [
+        {
+          "task_key": "silver_dim_account"
+        },
+        {
+          "task_key": "silver_dim_customer"
+        },
+        {
+          "task_key": "silver_dim_merchant"
+        },
+        {
+          "task_key": "silver_dim_branch"
+        }
+      ],
+      "task_cluster_id": 978,
+      "cluster_ids": [
+        977
+      ],
+      "retries": 2,
+      "retry_delay": 120000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "forex_treasury"
+      }
+    },
+    {
+      "task_key": "silver_conform_atm_network",
+      "__notebook__": "05_build_silver_txn_clean",
+      "depends_on": [
+        {
+          "task_key": "silver_dim_account"
+        },
+        {
+          "task_key": "silver_dim_customer"
+        },
+        {
+          "task_key": "silver_dim_merchant"
+        },
+        {
+          "task_key": "silver_dim_branch"
+        }
+      ],
+      "task_cluster_id": 978,
+      "cluster_ids": [
+        977
+      ],
+      "retries": 2,
+      "retry_delay": 120000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "atm_network"
+      }
+    },
+    {
+      "task_key": "silver_conform_digital_channel",
+      "__notebook__": "05_build_silver_txn_clean",
+      "depends_on": [
+        {
+          "task_key": "silver_dim_account"
+        },
+        {
+          "task_key": "silver_dim_customer"
+        },
+        {
+          "task_key": "silver_dim_merchant"
+        },
+        {
+          "task_key": "silver_dim_branch"
+        }
+      ],
+      "task_cluster_id": 978,
+      "cluster_ids": [
+        977
+      ],
+      "retries": 2,
+      "retry_delay": 120000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "digital_channel"
+      }
+    },
+    {
+      "task_key": "silver_conform_wealth_management",
+      "__notebook__": "05_build_silver_txn_clean",
+      "depends_on": [
+        {
+          "task_key": "silver_dim_account"
+        },
+        {
+          "task_key": "silver_dim_customer"
+        },
+        {
+          "task_key": "silver_dim_merchant"
+        },
+        {
+          "task_key": "silver_dim_branch"
+        }
+      ],
+      "task_cluster_id": 978,
+      "cluster_ids": [
+        977
+      ],
+      "retries": 2,
+      "retry_delay": 120000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "wealth_management"
+      }
+    },
+    {
+      "task_key": "silver_conform_trade_finance",
+      "__notebook__": "05_build_silver_txn_clean",
+      "depends_on": [
+        {
+          "task_key": "silver_dim_account"
+        },
+        {
+          "task_key": "silver_dim_customer"
+        },
+        {
+          "task_key": "silver_dim_merchant"
+        },
+        {
+          "task_key": "silver_dim_branch"
+        }
+      ],
+      "task_cluster_id": 978,
+      "cluster_ids": [
+        977
+      ],
+      "retries": 2,
+      "retry_delay": 120000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "trade_finance"
+      }
+    },
+    {
+      "task_key": "dq_silver_core_banking",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "silver_conform_core_banking"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "core_banking"
+      }
+    },
+    {
+      "task_key": "dq_silver_payments_switch",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "silver_conform_payments_switch"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "payments_switch"
+      }
+    },
+    {
+      "task_key": "dq_silver_cards_authorisation",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "silver_conform_cards_authorisation"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "cards_authorisation"
+      }
+    },
+    {
+      "task_key": "dq_silver_retail_loans",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "silver_conform_retail_loans"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "retail_loans"
+      }
+    },
+    {
+      "task_key": "dq_silver_term_deposits",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "silver_conform_term_deposits"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "term_deposits"
+      }
+    },
+    {
+      "task_key": "dq_silver_forex_treasury",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "silver_conform_forex_treasury"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "forex_treasury"
+      }
+    },
+    {
+      "task_key": "dq_silver_atm_network",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "silver_conform_atm_network"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "atm_network"
+      }
+    },
+    {
+      "task_key": "dq_silver_digital_channel",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "silver_conform_digital_channel"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "digital_channel"
+      }
+    },
+    {
+      "task_key": "dq_silver_wealth_management",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "silver_conform_wealth_management"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "wealth_management"
+      }
+    },
+    {
+      "task_key": "dq_silver_trade_finance",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "silver_conform_trade_finance"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_DOMAIN": "trade_finance"
+      }
+    },
+    {
+      "task_key": "silver_dq_rollup",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "dq_silver_core_banking"
+        },
+        {
+          "task_key": "dq_silver_payments_switch"
+        },
+        {
+          "task_key": "dq_silver_cards_authorisation"
+        },
+        {
+          "task_key": "dq_silver_retail_loans"
+        },
+        {
+          "task_key": "dq_silver_term_deposits"
+        },
+        {
+          "task_key": "dq_silver_forex_treasury"
+        },
+        {
+          "task_key": "dq_silver_atm_network"
+        },
+        {
+          "task_key": "dq_silver_digital_channel"
+        },
+        {
+          "task_key": "dq_silver_wealth_management"
+        },
+        {
+          "task_key": "dq_silver_trade_finance"
+        }
+      ],
+      "run_if": "None Failed",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "silver_gate",
+      "depends_on": [
+        {
+          "task_key": "silver_dq_rollup"
+        }
+      ],
+      "condition_task": {
+        "op": "EQUAL_TO",
+        "left": "{{ tasks.silver_dq_rollup.values.dq_status }}",
+        "right": "PASS"
+      }
+    },
+    {
+      "task_key": "silver_repair",
+      "__notebook__": "10_quarantine_bad_records",
+      "depends_on": [
+        {
+          "task_key": "silver_gate",
+          "outcome": "false"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "gold_account_balance_daily",
+      "__notebook__": "07_gold_account_balance_daily",
+      "depends_on": [
+        {
+          "task_key": "silver_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 978,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.account_balance_daily"
+      }
+    },
+    {
+      "task_key": "gold_fraud_signal_summary",
+      "__notebook__": "08_gold_fraud_signal_summary",
+      "depends_on": [
+        {
+          "task_key": "silver_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.fraud_signal_summary"
+      }
+    },
+    {
+      "task_key": "gold_channel_mix_daily",
+      "__notebook__": "07_gold_account_balance_daily",
+      "depends_on": [
+        {
+          "task_key": "silver_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 978,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.channel_mix_daily"
+      }
+    },
+    {
+      "task_key": "gold_merchant_spend_monthly",
+      "__notebook__": "08_gold_fraud_signal_summary",
+      "depends_on": [
+        {
+          "task_key": "silver_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.merchant_spend_monthly"
+      }
+    },
+    {
+      "task_key": "gold_loan_exposure_snapshot",
+      "__notebook__": "07_gold_account_balance_daily",
+      "depends_on": [
+        {
+          "task_key": "silver_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 978,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.loan_exposure_snapshot"
+      }
+    },
+    {
+      "task_key": "gold_deposit_growth_trend",
+      "__notebook__": "08_gold_fraud_signal_summary",
+      "depends_on": [
+        {
+          "task_key": "silver_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.deposit_growth_trend"
+      }
+    },
+    {
+      "task_key": "gold_fx_position_daily",
+      "__notebook__": "07_gold_account_balance_daily",
+      "depends_on": [
+        {
+          "task_key": "silver_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 978,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.fx_position_daily"
+      }
+    },
+    {
+      "task_key": "gold_atm_utilisation_daily",
+      "__notebook__": "08_gold_fraud_signal_summary",
+      "depends_on": [
+        {
+          "task_key": "silver_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.atm_utilisation_daily"
+      }
+    },
+    {
+      "task_key": "gold_customer_360_profile",
+      "__notebook__": "07_gold_account_balance_daily",
+      "depends_on": [
+        {
+          "task_key": "silver_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 978,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.customer_360_profile"
+      }
+    },
+    {
+      "task_key": "gold_regulatory_capital_input",
+      "__notebook__": "08_gold_fraud_signal_summary",
+      "depends_on": [
+        {
+          "task_key": "silver_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.regulatory_capital_input"
+      }
+    },
+    {
+      "task_key": "gold_card_spend_category",
+      "__notebook__": "07_gold_account_balance_daily",
+      "depends_on": [
+        {
+          "task_key": "silver_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 978,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.card_spend_category"
+      }
+    },
+    {
+      "task_key": "gold_trade_finance_exposure",
+      "__notebook__": "08_gold_fraud_signal_summary",
+      "depends_on": [
+        {
+          "task_key": "silver_gate",
+          "outcome": "true"
+        }
+      ],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.trade_finance_exposure"
+      }
+    },
+    {
+      "task_key": "dq_gold_account_balance_daily",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "gold_account_balance_daily"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.account_balance_daily"
+      }
+    },
+    {
+      "task_key": "dq_gold_fraud_signal_summary",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "gold_fraud_signal_summary"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.fraud_signal_summary"
+      }
+    },
+    {
+      "task_key": "dq_gold_channel_mix_daily",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "gold_channel_mix_daily"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.channel_mix_daily"
+      }
+    },
+    {
+      "task_key": "dq_gold_merchant_spend_monthly",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "gold_merchant_spend_monthly"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.merchant_spend_monthly"
+      }
+    },
+    {
+      "task_key": "dq_gold_loan_exposure_snapshot",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "gold_loan_exposure_snapshot"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.loan_exposure_snapshot"
+      }
+    },
+    {
+      "task_key": "dq_gold_deposit_growth_trend",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "gold_deposit_growth_trend"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.deposit_growth_trend"
+      }
+    },
+    {
+      "task_key": "dq_gold_fx_position_daily",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "gold_fx_position_daily"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.fx_position_daily"
+      }
+    },
+    {
+      "task_key": "dq_gold_atm_utilisation_daily",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "gold_atm_utilisation_daily"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.atm_utilisation_daily"
+      }
+    },
+    {
+      "task_key": "dq_gold_customer_360_profile",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "gold_customer_360_profile"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.customer_360_profile"
+      }
+    },
+    {
+      "task_key": "dq_gold_regulatory_capital_input",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "gold_regulatory_capital_input"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.regulatory_capital_input"
+      }
+    },
+    {
+      "task_key": "dq_gold_card_spend_category",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "gold_card_spend_category"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.card_spend_category"
+      }
+    },
+    {
+      "task_key": "dq_gold_trade_finance_exposure",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [
+        {
+          "task_key": "gold_trade_finance_exposure"
+        }
+      ],
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "TARGET_TABLE": "banking_gold.trade_finance_exposure"
+      }
+    },
+    {
+      "task_key": "settle_delay",
+      "depends_on": [
+        {
+          "task_key": "dq_gold_account_balance_daily"
+        },
+        {
+          "task_key": "dq_gold_fraud_signal_summary"
+        },
+        {
+          "task_key": "dq_gold_channel_mix_daily"
+        },
+        {
+          "task_key": "dq_gold_merchant_spend_monthly"
+        },
+        {
+          "task_key": "dq_gold_loan_exposure_snapshot"
+        },
+        {
+          "task_key": "dq_gold_deposit_growth_trend"
+        },
+        {
+          "task_key": "dq_gold_fx_position_daily"
+        },
+        {
+          "task_key": "dq_gold_atm_utilisation_daily"
+        },
+        {
+          "task_key": "dq_gold_customer_360_profile"
+        },
+        {
+          "task_key": "dq_gold_regulatory_capital_input"
+        },
+        {
+          "task_key": "dq_gold_card_spend_category"
+        },
+        {
+          "task_key": "dq_gold_trade_finance_exposure"
+        }
+      ],
+      "run_if": "All Done",
+      "sleep_task": {
+        "seconds": 30
+      }
+    },
+    {
+      "task_key": "collect_gold_stats",
+      "depends_on": [
+        {
+          "task_key": "settle_delay"
+        }
+      ],
+      "for_each_task": {
+        "inputs": "{{ job.parameters.gold_tables }}",
+        "concurrency": 4,
+        "run_if": "All Done",
+        "task": {
+          "task_key": "profile_gold_table",
+          "__notebook__": "11_table_stats",
+          "task_cluster_id": 979,
+          "retries": 1,
+          "retry_delay": 30000,
+          "parameters": {
+            "RUN_DATE": "{{ job.parameters.run_date }}",
+            "TARGET_TABLE": "{{ loop_input }}"
+          }
+        }
+      }
+    },
+    {
+      "task_key": "collect_silver_stats",
+      "depends_on": [
+        {
+          "task_key": "settle_delay"
+        }
+      ],
+      "for_each_task": {
+        "inputs": "{{ job.parameters.silver_tables }}",
+        "concurrency": 3,
+        "run_if": "All Done",
+        "task": {
+          "task_key": "profile_silver_table",
+          "__notebook__": "11_table_stats",
+          "task_cluster_id": 979,
+          "retries": 1,
+          "retry_delay": 30000,
+          "parameters": {
+            "RUN_DATE": "{{ job.parameters.run_date }}",
+            "TARGET_TABLE": "{{ loop_input }}"
+          }
+        }
+      }
+    },
+    {
+      "task_key": "archive_bronze_partitions",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "collect_gold_stats"
+        },
+        {
+          "task_key": "collect_silver_stats"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "MAINTENANCE_JOB": "archive_bronze_partitions"
+      }
+    },
+    {
+      "task_key": "compact_silver_tables",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "collect_gold_stats"
+        },
+        {
+          "task_key": "collect_silver_stats"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "MAINTENANCE_JOB": "compact_silver_tables"
+      }
+    },
+    {
+      "task_key": "optimize_gold_layout",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "collect_gold_stats"
+        },
+        {
+          "task_key": "collect_silver_stats"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "MAINTENANCE_JOB": "optimize_gold_layout"
+      }
+    },
+    {
+      "task_key": "refresh_bi_extracts",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "collect_gold_stats"
+        },
+        {
+          "task_key": "collect_silver_stats"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "MAINTENANCE_JOB": "refresh_bi_extracts"
+      }
+    },
+    {
+      "task_key": "capture_lineage_graph",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "collect_gold_stats"
+        },
+        {
+          "task_key": "collect_silver_stats"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "MAINTENANCE_JOB": "capture_lineage_graph"
+      }
+    },
+    {
+      "task_key": "publish_cost_report",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "collect_gold_stats"
+        },
+        {
+          "task_key": "collect_silver_stats"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "MAINTENANCE_JOB": "publish_cost_report"
+      }
+    },
+    {
+      "task_key": "evaluate_sla_targets",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "collect_gold_stats"
+        },
+        {
+          "task_key": "collect_silver_stats"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "MAINTENANCE_JOB": "evaluate_sla_targets"
+      }
+    },
+    {
+      "task_key": "publish_and_audit",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "archive_bronze_partitions"
+        },
+        {
+          "task_key": "compact_silver_tables"
+        },
+        {
+          "task_key": "optimize_gold_layout"
+        },
+        {
+          "task_key": "refresh_bi_extracts"
+        },
+        {
+          "task_key": "capture_lineage_graph"
+        },
+        {
+          "task_key": "publish_cost_report"
+        },
+        {
+          "task_key": "evaluate_sla_targets"
+        },
+        {
+          "task_key": "quarantine_bronze"
+        },
+        {
+          "task_key": "silver_repair"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "platform_notify",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        {
+          "task_key": "publish_and_audit"
+        }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 0,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "NOTIFY_ONLY": "true"
+      }
+    }
+  ]
+}

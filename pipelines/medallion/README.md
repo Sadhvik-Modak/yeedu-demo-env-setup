@@ -1,9 +1,16 @@
 # Medallion architecture demo — banking transactions
 
 A self-contained bronze → silver → gold demo for Yeedu 2.11.0: **12 notebooks**
-and **2 pipelines** that show a realistic medallion DAG with setup, parallel
+and **4 pipelines** that show a realistic medallion DAG with setup, parallel
 ingestion, quality gates, a quarantine branch, conformed silver builds, gold
-aggregates, a for-each profiling loop, and an always-runs audit tail.
+aggregates, for-each profiling loops, and an always-runs audit tail.
+
+| Pipeline | Tasks | What it shows |
+|---|---|---|
+| `medallion_banking_pipeline` | 14 | the core medallion DAG, small enough to read in one screen |
+| `medallion_daily_orchestrator` | 5 | switch-case routing into a nested pipeline run |
+| `enterprise_banking_medallion_platform` | 100 | the same architecture at enterprise width — 10 sources, 12 marts |
+| `medallion_backfill_and_reconciliation` | 100 | backfill routing plus an 8×3 reconciliation matrix |
 
 Everything here is standalone — it depends on nothing else in this repository.
 
@@ -15,11 +22,19 @@ Everything here is standalone — it depends on nothing else in this repository.
 
 ```
 pipelines/medallion/
-  notebooks/        12 × .ipynb   the actual PySpark
-  definitions/      2  × .json    the pipeline DAGs
-  provision.py                    uploads + registers everything (idempotent)
+  notebooks/                    12 × .ipynb   the actual PySpark
+  definitions/                  4  × .json    the pipeline DAGs
+  provision.py                  uploads + registers everything (idempotent)
+  generate_large_pipelines.py   regenerates the two 100-task definitions
   README.md
 ```
+
+The two small pipeline definitions are hand-written. The two 100-task ones are
+generated — at that size the interesting content is the *shape* (10 sources ×
+3 checks, 8 domains × 3 controls), so they are described as lists and expanded
+by `generate_large_pipelines.py`, which also asserts the invariants that are
+easy to break at scale: unique task keys, no forward references, for-each
+params encoded as JSON strings, and no `retries` on a `run_job_task`.
 
 ## The data model
 
@@ -147,6 +162,125 @@ choose_run_mode  [switch_case on job.parameters.run_mode: full | incremental]
 
 It must be created **after** pipeline 1, since it embeds pipeline 1's real id.
 
+## Pipeline 3 — `enterprise_banking_medallion_platform`
+
+`schedule_cron: 0 3 * * *`. **100 tasks**, 183 dependency edges. The same
+medallion shape as pipeline 1, widened to what an actual bank's platform looks
+like:
+
+```
+platform_setup
+   +-- metastore_preflight ---+
+   +-- landing_zone_scan -----+
+                              |
+        10 source systems, each landed / profiled / DQ-checked in parallel
+        (core_banking, payments_switch, cards_authorisation, retail_loans,
+         term_deposits, forex_treasury, atm_network, digital_channel,
+         wealth_management, trade_finance)                       30 tasks
+                              |
+                     bronze_dq_rollup  [run_if: All Done]
+                              |
+                        bronze_gate  [condition]
+                   /                          \
+          outcome=false                   outcome=true
+                |                               |
+      quarantine_bronze              4 conformed dimensions
+                |                    (account, customer, merchant, branch)
+   bronze_incident_report                       |
+                |                    10 × silver_conform_<source>
+                |                               |
+                |                    10 × dq_silver_<source>
+                |                               |
+                |                     silver_dq_rollup  [None Failed]
+                |                               |
+                |                        silver_gate  [condition]
+                |                   /                      \
+                |          outcome=false              outcome=true
+                |               |                          |
+                |        silver_repair          12 gold marts, alternating
+                |               |               on-prem / AWS placement
+                |               |                          |
+                |               |               12 × dq_gold_<mart>
+                |               |                          |
+                |               |                   settle_delay [sleep 30s]
+                |               |                     /            \
+                |               |       collect_gold_stats   collect_silver_stats
+                |               |       [for_each, conc 4]   [for_each, conc 3]
+                |               |                     \            /
+                |               |                7 × housekeeping tasks
+                |               |                (archive, compact, optimize,
+                |               |                 BI refresh, lineage, cost, SLA)
+                \______________/________________________|
+                                     |
+                          publish_and_audit  [All Done]
+                                     |
+                             platform_notify
+```
+
+Task mix: 95 Notebook, 2 Condition, 2 For Each, 1 Sleep. Cluster spread
+979 × 57 / 978 × 20 / 977 × 18.
+
+## Pipeline 4 — `medallion_backfill_and_reconciliation`
+
+`schedule_cron: 0 5 * * 0` (weekly). **100 tasks**, 157 dependency edges. This
+is the operational counterpart — how you repair a medallion and then prove the
+repair was correct:
+
+```
+backfill_setup -> resolve_backfill_window
+                          |
+            choose_backfill_mode  [switch_case: full_reload | delta_replay | repair_only]
+        /                         |                              \
+  full_reload                delta_replay                     repair_only
+  truncate                   6 × replay_<slice>               repair_scan
+  reload bronze              6 × verify_<slice>               repair_apply
+  rebuild silver             merge_delta_batches              repair_verify
+  rebuild gold
+        \                         |                              /
+                    backfill_converge  [At Least One Succeeded]
+                                  |
+                   rerun_core_medallion  [run_job_task -> pipeline 1]
+                                  |
+                       post_backfill_settle  [sleep 20s]
+                                  |
+        8 domains × { rowcount, sum, checksum } controls        24 tasks
+        8 × recon_gate_<domain>  [condition, All Done]
+             outcome=false -> recon_repair_<domain>
+             outcome=true  -> recon_signoff_<domain>            24 tasks
+                                  |
+        4 regions × { recon_region, region_variance }            8 tasks
+                                  |
+                          variance_rollup
+                                  |
+                    variance_gate  [condition: LESS_THAN_OR_EQUAL
+                                    variance_pct vs variance_tolerance]
+                     /                           \
+            outcome=false                    outcome=true
+        variance_escalate                  variance_accept
+                     \                           /
+              collect_recon_stats   collect_domain_stats   [for_each, conc 4]
+                                  |
+                        reconciliation_report
+                                  |
+                       archive_recon_evidence
+                          /              \
+          notify_data_stewards      notify_risk_office
+                          \              /
+              7-step close-out chain (control totals, source-of-record
+              comparison, late-arriving facts, reprocess, dashboard,
+              SLA update, close window)
+                                  |
+                           final_signoff
+```
+
+Task mix: 86 Notebook, 9 Condition, 2 For Each, 1 Switch Case, 1 Run Pipeline,
+1 Sleep. This is the one that exercises the **numeric** condition operator
+(`LESS_THAN_OR_EQUAL`) and all six run conditions.
+
+Between the four pipelines every task type Yeedu offers except the three
+non-notebook job types (Jar, Python, Scala, SQL) is demonstrated, along with
+all six `run_if` conditions.
+
 ## Template syntax
 
 Yeedu's templating is not the Airflow/Databricks form. The dialect this
@@ -206,8 +340,18 @@ Defaults target `dev-onprem-009.yeedu.io:8080`, tenant
 It is idempotent — it matches by name, skips notebooks that already exist and
 PUTs pipelines that do. **It never triggers a run.**
 
+To regenerate the two large definitions after editing the source/mart/domain
+lists:
+
+```bash
+python3 generate_large_pipelines.py   # rewrites definitions/, asserts invariants
+python3 provision.py                  # pushes the result
+```
+
 Current live ids in `demo_workspace` (1151): notebooks `1015787`–`1015799`,
-`medallion_banking_pipeline` = **212**, `medallion_daily_orchestrator` = **213**.
+`medallion_banking_pipeline` = **212**, `medallion_daily_orchestrator` = **213**,
+`enterprise_banking_medallion_platform` = **214**,
+`medallion_backfill_and_reconciliation` = **215**.
 
 Order of operations: upload the 12 `.ipynb` files to `/medallion/` → register
 each as a notebook → build a name→`notebook_id` map → resolve the
@@ -284,3 +428,10 @@ Two things would need attention first:
    `cluster_ids` fallback list on `build_silver_txn_clean`.
 7. Open `medallion_daily_orchestrator` to show switch-case routing and one
    pipeline calling another.
+8. Then open `enterprise_banking_medallion_platform` — the same architecture at
+   100 tasks. The point to make is that the *shape* is unchanged; only the width
+   grew, and Yeedu renders and schedules it the same way.
+9. Open `medallion_backfill_and_reconciliation` for the operational story:
+   three backfill strategies behind one switch, a nested re-run of the core
+   pipeline, and a reconciliation matrix where each domain independently gates
+   into repair or sign-off.
