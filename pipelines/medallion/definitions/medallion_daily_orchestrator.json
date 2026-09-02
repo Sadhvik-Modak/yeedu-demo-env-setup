@@ -1,0 +1,62 @@
+{
+  "name": "medallion_daily_orchestrator",
+  "description": "Scheduling wrapper around medallion_banking_pipeline. Branches on the run_mode parameter with a switch-case, invokes the medallion pipeline as a nested run, and closes with an always-runs notification task.",
+  "schedule_cron": "30 1 * * *",
+  "max_active_runs": 1,
+  "tags": ["medallion", "banking", "demo", "orchestrator"],
+  "params": {
+    "run_mode": "full",
+    "run_date": "2026-09-03"
+  },
+  "tasks": [
+    {
+      "task_key": "choose_run_mode",
+      "switch_case_task": {
+        "expr": "{{ job.parameters.run_mode }}",
+        "cases": ["full", "incremental"]
+      }
+    },
+
+    {
+      "task_key": "run_medallion_full",
+      "depends_on": [{ "task_key": "choose_run_mode", "outcome": "full" }],
+      "run_job_task": { "__pipeline__": "medallion_banking_pipeline" },
+      "parameters": {
+        "run_date": "{{ job.parameters.run_date }}",
+        "load_strategy": "FULL_REFRESH"
+      }
+    },
+    {
+      "task_key": "run_medallion_incremental",
+      "depends_on": [{ "task_key": "choose_run_mode", "outcome": "incremental" }],
+      "run_job_task": { "__pipeline__": "medallion_banking_pipeline" },
+      "parameters": {
+        "run_date": "{{ job.parameters.run_date }}",
+        "load_strategy": "INCREMENTAL"
+      }
+    },
+
+    {
+      "task_key": "cooldown",
+      "depends_on": [
+        { "task_key": "run_medallion_full" },
+        { "task_key": "run_medallion_incremental" }
+      ],
+      "run_if": "At Least One Succeeded",
+      "sleep_task": { "seconds": 15 }
+    },
+
+    {
+      "task_key": "notify_completion",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [{ "task_key": "cooldown" }],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 0,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "NOTIFY_ONLY": "true"
+      }
+    }
+  ]
+}

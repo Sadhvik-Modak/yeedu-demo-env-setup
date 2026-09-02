@@ -1,0 +1,197 @@
+{
+  "name": "medallion_banking_pipeline",
+  "description": "Bronze -> Silver -> Gold medallion pipeline for retail banking transactions. Setup, parallel ingestion, a bronze quality gate that branches to quarantine on failure, conformed silver builds, a strict silver gate, parallel gold aggregates, a for-each profiling loop, and an always-runs publish/audit tail.",
+  "schedule_cron": "0 2 * * *",
+  "max_active_runs": 1,
+  "tags": ["medallion", "banking", "demo", "bronze-silver-gold"],
+  "params": {
+    "run_date": "2026-09-03",
+    "dq_threshold": "0.98",
+    "gold_tables": "[\"banking_gold.account_balance_daily\", \"banking_gold.fraud_signal_summary\"]"
+  },
+  "tasks": [
+    {
+      "task_key": "setup_environment",
+      "__notebook__": "00_setup_environment",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DQ_THRESHOLD": "{{ job.parameters.dq_threshold }}"
+      }
+    },
+
+    {
+      "task_key": "ingest_bronze_accounts",
+      "__notebook__": "01_ingest_bronze_accounts",
+      "depends_on": [{ "task_key": "setup_environment" }],
+      "task_cluster_id": 977,
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_SYSTEM": "core-banking-cbs"
+      }
+    },
+    {
+      "task_key": "ingest_bronze_transactions",
+      "__notebook__": "02_ingest_bronze_transactions",
+      "depends_on": [{ "task_key": "setup_environment" }],
+      "task_cluster_id": 977,
+      "cluster_ids": [978],
+      "retries": 2,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "SOURCE_SYSTEM": "payments-switch"
+      }
+    },
+
+    {
+      "task_key": "validate_bronze",
+      "__notebook__": "03_validate_bronze",
+      "depends_on": [
+        { "task_key": "ingest_bronze_accounts" },
+        { "task_key": "ingest_bronze_transactions" }
+      ],
+      "run_if": "All Succeeded",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "DQ_THRESHOLD": "{{ job.parameters.dq_threshold }}"
+      }
+    },
+    {
+      "task_key": "bronze_quality_gate",
+      "depends_on": [{ "task_key": "validate_bronze" }],
+      "condition_task": {
+        "op": "EQUAL_TO",
+        "left": "{{ tasks.validate_bronze.values.dq_status }}",
+        "right": "PASS"
+      }
+    },
+
+    {
+      "task_key": "quarantine_bad_records",
+      "__notebook__": "10_quarantine_bad_records",
+      "depends_on": [{ "task_key": "bronze_quality_gate", "outcome": "false" }],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+
+    {
+      "task_key": "build_silver_dim_account",
+      "__notebook__": "04_build_silver_dim_account",
+      "depends_on": [{ "task_key": "bronze_quality_gate", "outcome": "true" }],
+      "task_cluster_id": 978,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "build_silver_txn_clean",
+      "__notebook__": "05_build_silver_txn_clean",
+      "depends_on": [{ "task_key": "build_silver_dim_account" }],
+      "task_cluster_id": 978,
+      "cluster_ids": [977],
+      "retries": 2,
+      "retry_delay": 120000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+
+    {
+      "task_key": "validate_silver",
+      "__notebook__": "06_validate_silver",
+      "depends_on": [{ "task_key": "build_silver_txn_clean" }],
+      "run_if": "All Succeeded",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+
+    {
+      "task_key": "gold_account_balance_daily",
+      "__notebook__": "07_gold_account_balance_daily",
+      "depends_on": [{ "task_key": "validate_silver" }],
+      "task_cluster_id": 978,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    },
+    {
+      "task_key": "gold_fraud_signal_summary",
+      "__notebook__": "08_gold_fraud_signal_summary",
+      "depends_on": [{ "task_key": "validate_silver" }],
+      "task_cluster_id": 977,
+      "retries": 1,
+      "retry_delay": 60000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}",
+        "HIGH_VALUE_INR": "50000"
+      }
+    },
+
+    {
+      "task_key": "settle_delay",
+      "depends_on": [
+        { "task_key": "gold_account_balance_daily" },
+        { "task_key": "gold_fraud_signal_summary" }
+      ],
+      "run_if": "All Succeeded",
+      "sleep_task": { "seconds": 30 }
+    },
+
+    {
+      "task_key": "collect_table_stats",
+      "depends_on": [{ "task_key": "settle_delay" }],
+      "for_each_task": {
+        "inputs": "{{ job.parameters.gold_tables }}",
+        "concurrency": 2,
+        "run_if": "All Succeeded",
+        "task": {
+          "task_key": "profile_gold_table",
+          "__notebook__": "11_table_stats",
+          "task_cluster_id": 979,
+          "retries": 1,
+          "retry_delay": 30000,
+          "parameters": {
+            "TARGET_TABLE": "{{ loop_input }}",
+            "RUN_DATE": "{{ job.parameters.run_date }}"
+          }
+        }
+      }
+    },
+
+    {
+      "task_key": "publish_and_audit",
+      "__notebook__": "09_publish_and_audit",
+      "depends_on": [
+        { "task_key": "collect_table_stats" },
+        { "task_key": "quarantine_bad_records" }
+      ],
+      "run_if": "All Done",
+      "task_cluster_id": 979,
+      "retries": 1,
+      "retry_delay": 30000,
+      "parameters": {
+        "RUN_DATE": "{{ job.parameters.run_date }}"
+      }
+    }
+  ]
+}
