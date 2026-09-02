@@ -9,9 +9,10 @@ ready whenever needed, without hand-clicking through setup each time.
 - **[`functions/`](functions/README.md)** — 3 Yeedu Functions demos (ML
   inference as a REST endpoint): iris classification, insurance fraud
   scoring, sentiment analysis. Covers `job_type: Functions`.
-- **[`jobs/`](jobs/README.md)** — the other 3 Spark job types: `jar/` (a
+- **[`jobs/`](jobs/README.md)** — the other 4 Spark job types: `jar/` (a
   thin, repo-committed jar), `python/` and `sql/` (all three query the
-  digital marketing customer RFM table). Covers `job_type: JAR/Python/Spark SQL`.
+  digital marketing customer RFM table), and `scala/` (a Raw Scala
+  streaming Autoloader demo). Covers `job_type: JAR/Python/Spark SQL/Custom Code`.
 - **[`notebooks/`](notebooks/README.md)** — 6 industry verticals (life
   sciences, healthcare, pharma, agriculture, financial services, digital
   marketing), each with a real public dataset, a genuine business

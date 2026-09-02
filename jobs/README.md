@@ -1,15 +1,18 @@
 # Yeedu Job-Type Demos
 
 Worked examples of Yeedu Spark **jobs** (as distinct from Functions and
-notebooks) covering the remaining `job_type` values: `Jar`, `Python3`, and
-`SQL` (CLI display names: `JAR`, `Python`, `Spark SQL`). See
-[`functions/`](../functions/) for the fourth type (`Functions`) and
-[`notebooks/`](../notebooks/) for interactive notebook-as-a-job.
+notebooks) covering the remaining `job_type` values: `Jar`, `Python3`,
+`SQL`, and `Custom Code` (Raw Scala) (CLI display names: `JAR`, `Python`,
+`Spark SQL`, `Custom Code`). See [`functions/`](../functions/) for the
+fifth type (`Functions`) and [`notebooks/`](../notebooks/) for interactive
+notebook-as-a-job.
 
-All three query the same demo data already set up in `notebooks/` — the
-digital marketing customer RFM segmentation table
+The first three query the same demo data already set up in `notebooks/` —
+the digital marketing customer RFM segmentation table
 (`retail.customer_rfm_segments_v1`) — so the only thing that differs
-between them is the job type mechanics, not the use case.
+between them is the job type mechanics, not the use case. `scala/` is a
+different kind of demo: a long-running Structured Streaming job rather
+than a one-shot query.
 
 ## Demos
 
@@ -27,10 +30,18 @@ as the JAR demo, different job type.
 the same table, run directly as a `job_type: SQL` job (no Python/JVM code
 at all).
 
+### [`scala/`](scala/README.md) — Streaming Autoloader (Raw Scala)
+`parquet_autoloader_job.scala` — a `job_type: Custom Code`, `language: Raw
+Scala` job that uses Yeedu's built-in `cloudFiles` source (its Auto Loader
+equivalent) to incrementally ingest new parquet files, transform each
+micro-batch, and write the result out. Checkpointed, runs continuously.
+
 ## Deploying
 
-`automation/deploy_other_jobs.py` creates all three as part of
-`automation/provision.py`'s run — see `automation/README.md` for the exact
-`job_command`/`job_class_name` values used and what's confirmed vs.
+`automation/deploy_other_jobs.py` creates the JAR/Python/SQL demos as part
+of `automation/provision.py`'s run — see `automation/README.md` for the
+exact `job_command`/`job_class_name` values used and what's confirmed vs.
 assumed (Python3/SQL `job_command` semantics aren't shown anywhere in
-Yeedu's docs, only JAR is — see that README's "Known gaps").
+Yeedu's docs, only JAR is — see that README's "Known gaps"). `scala/` is
+deployed as a one-off (see its own README) — its indefinitely-running
+streaming semantics don't fit that script's one-shot create/start flow.
