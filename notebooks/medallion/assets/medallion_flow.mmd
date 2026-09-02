@@ -1,0 +1,12 @@
+flowchart LR
+  G["<b>TPC-DS SF10</b><br/>data generator"]
+  B["<b>BRONZE</b> · bronze_retail<br/><br/>24 tables · 192.3M rows<br/>raw, exactly as landed<br/>+ audit columns"]
+  S["<b>SILVER</b> · silver_retail<br/><br/>15 conformed dimensions<br/>3 facts at one grain<br/>DQ ledger + quarantine"]
+  D["<b>GOLD</b> · gold_retail<br/><br/>11 business marts<br/>KPI · RFM · promo ROI<br/>inventory cover · affinity"]
+  G -->|"generate<br/>and land"| B
+  B -->|"conform · cleanse<br/>dedup · quarantine"| S
+  S -->|"aggregate · segment<br/>rank · trend"| D
+  style G fill:#ffffff,stroke:#9aa5b1,color:#111
+  style B fill:#f0c894,stroke:#a8692c,color:#111,stroke-width:2px
+  style S fill:#d8dee4,stroke:#6b7a89,color:#111,stroke-width:2px
+  style D fill:#f5df8e,stroke:#a8901c,color:#111,stroke-width:2px
